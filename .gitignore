@@ -1,0 +1,6 @@
+# Ignore sensitive keys and local db
+keys/private_key.bin
+db/railway.db
+.env
+__pycache__/
+*.pyc
