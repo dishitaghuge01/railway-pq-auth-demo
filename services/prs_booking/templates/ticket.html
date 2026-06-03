@@ -1,8 +1,449 @@
-<!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>Ticket</title></head>
-  <body>
-    <h1>Ticket for {{ holder }}</h1>
-    <p>This is a placeholder ticket.</p>
-  </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ticket — {{ ticket.pnr }}</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #f0f2f5;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 14px;
+      color: #1a1a1a;
+      padding: 16px;
+    }
+
+    .ticket-wrapper {
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    /* ── Header band ── */
+    .ticket-header {
+      background: #1a3a6b;
+      color: #ffffff;
+      border-radius: 12px 12px 0 0;
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .ticket-header .ir-logo {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .ticket-header .ir-logo span {
+      display: block;
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0.5px;
+      opacity: 0.85;
+      margin-top: 2px;
+    }
+
+    .ticket-header .pnr-block {
+      text-align: right;
+    }
+
+    .ticket-header .pnr-label {
+      font-size: 10px;
+      opacity: 0.75;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .ticket-header .pnr-value {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+
+    /* ── Type badge strip ── */
+    .type-strip {
+      background: #e8f0fe;
+      border-left: 4px solid #1a3a6b;
+      padding: 6px 20px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #1a3a6b;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    {% if ticket.ticket_type == 'T' %}
+    .type-strip {
+      background: #fff3e0;
+      border-left-color: #e65100;
+      color: #e65100;
+    }
+    {% endif %}
+
+    /* ── Body card ── */
+    .ticket-body {
+      background: #ffffff;
+      padding: 20px;
+      border-left: 1px solid #dde3ee;
+      border-right: 1px solid #dde3ee;
+    }
+
+    /* ── Journey row ── */
+    .journey-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .station {
+      text-align: center;
+      flex: 1;
+    }
+
+    .station-code {
+      font-size: 26px;
+      font-weight: 700;
+      color: #1a3a6b;
+      letter-spacing: 1px;
+    }
+
+    .station-label {
+      font-size: 10px;
+      color: #888;
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .journey-arrow {
+      flex: 0 0 40px;
+      text-align: center;
+      font-size: 20px;
+      color: #aaa;
+    }
+
+    /* ── Info grid ── */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .info-cell {
+      background: #f7f9fc;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .info-cell .label {
+      font-size: 10px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 4px;
+    }
+
+    .info-cell .value {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    /* ── Class badge ── */
+    .class-badge {
+      display: inline-block;
+      background: #1a3a6b;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 2px 10px;
+      border-radius: 4px;
+      letter-spacing: 1px;
+    }
+
+    /* ── Divider ── */
+    .divider {
+      border: none;
+      border-top: 1px dashed #dde3ee;
+      margin: 16px 0;
+    }
+
+    /* ── Passenger table ── */
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 10px;
+    }
+
+    .passenger-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .passenger-table th {
+      font-size: 10px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      text-align: left;
+      padding: 0 0 6px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .passenger-table td {
+      padding: 8px 0;
+      border-bottom: 1px solid #f3f3f3;
+      font-size: 13px;
+    }
+
+    .passenger-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .berth-tag {
+      display: inline-block;
+      background: #e8f0fe;
+      color: #1a3a6b;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .berth-tag.unreserved {
+      background: #f3f3f3;
+      color: #888;
+    }
+
+    /* ── Validity strip ── */
+    .validity-strip {
+      background: #f7f9fc;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-top: 16px;
+      font-size: 11px;
+      color: #555;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .validity-strip .val-block {
+      text-align: center;
+    }
+
+    .validity-strip .val-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #aaa;
+      margin-bottom: 3px;
+    }
+
+    .validity-strip .val-time {
+      font-size: 12px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    /* ── QR section ── */
+    .qr-section {
+      background: #ffffff;
+      border: 1px solid #dde3ee;
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .qr-section .qr-label {
+      font-size: 10px;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+    }
+
+    .qr-section img {
+      width: 220px;
+      height: 220px;
+      display: block;
+      margin: 0 auto;
+      border: 1px solid #eee;
+      border-radius: 4px;
+    }
+
+    .qr-section .qr-note {
+      font-size: 10px;
+      color: #bbb;
+      margin-top: 10px;
+    }
+
+    /* ── Security badge ── */
+    .security-badge {
+      margin-top: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 20px;
+      letter-spacing: 0.3px;
+    }
+
+    .security-badge .dot {
+      width: 7px;
+      height: 7px;
+      background: #43a047;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    /* ── Issued at footer ── */
+    .issued-at {
+      text-align: center;
+      font-size: 10px;
+      color: #ccc;
+      margin-top: 14px;
+      letter-spacing: 0.3px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="ticket-wrapper">
+
+  <!-- Header -->
+  <div class="ticket-header">
+    <div class="ir-logo">
+      🚆 INDIAN RAILWAYS
+      <span>Ministry of Railways, Govt. of India</span>
+    </div>
+    <div class="pnr-block">
+      <div class="pnr-label">PNR</div>
+      <div class="pnr-value">{{ ticket.pnr }}</div>
+    </div>
+  </div>
+
+  <!-- Type strip -->
+  <div class="type-strip">
+    <span>
+      {% if ticket.ticket_type == 'R' %}Reserved Ticket
+      {% elif ticket.ticket_type == 'T' %}Tatkal Reserved Ticket
+      {% elif ticket.ticket_type == 'U' %}Unreserved Ticket
+      {% else %}{{ ticket.ticket_type }}
+      {% endif %}
+    </span>
+    <span>Train No. {{ ticket.train }}</span>
+  </div>
+
+  <!-- Body -->
+  <div class="ticket-body">
+
+    <!-- Journey -->
+    <div class="journey-row">
+      <div class="station">
+        <div class="station-code">{{ ticket.from_stn }}</div>
+        <div class="station-label">Origin</div>
+      </div>
+      <div class="journey-arrow">→</div>
+      <div class="station">
+        <div class="station-code">{{ ticket.to_stn }}</div>
+        <div class="station-label">Destination</div>
+      </div>
+    </div>
+
+    <!-- Info grid -->
+    <div class="info-grid">
+      <div class="info-cell">
+        <div class="label">Date of Journey</div>
+        <div class="value">{{ ticket.travel_date }}</div>
+      </div>
+      <div class="info-cell">
+        <div class="label">Class</div>
+        <div class="value">
+          <span class="class-badge">{{ ticket.ticket_class }}</span>
+        </div>
+      </div>
+      <div class="info-cell">
+        <div class="label">Valid From</div>
+        <div class="value" style="font-size:12px;">{{ valid_from }}</div>
+      </div>
+      <div class="info-cell">
+        <div class="label">Valid Until</div>
+        <div class="value" style="font-size:12px;">{{ valid_until }}</div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Passengers -->
+    <div class="section-label">Passengers</div>
+    <table class="passenger-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Berth</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in passengers %}
+        <tr>
+          <td style="color:#aaa; width:24px;">{{ loop.index }}</td>
+          <td>{{ p.passenger_name }}</td>
+          <td>
+            {% if p.berth %}
+              <span class="berth-tag">{{ p.berth }}</span>
+            {% else %}
+              <span class="berth-tag unreserved">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+  </div><!-- /ticket-body -->
+
+  <!-- QR section -->
+  <div class="qr-section">
+    <div class="qr-label">Cryptographically Signed Ticket QR</div>
+    <img src="{{ qr_url }}" alt="Ticket QR Code" />
+    <div class="security-badge">
+      <span class="dot"></span>
+      ECDSA P-256 Signed · Tamper-Evident
+    </div>
+    <div class="qr-note">
+      This QR contains a digitally signed JWT.<br />
+      Any modification to ticket data invalidates the signature.
+    </div>
+  </div>
+
+  <div class="issued-at">
+    Issued at {{ ticket.issued_at | int | string }} (unix) ·
+    This is a demo system
+  </div>
+
+</div><!-- /ticket-wrapper -->
+
+</body>
 </html>
