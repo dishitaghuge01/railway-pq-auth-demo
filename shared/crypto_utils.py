@@ -24,11 +24,11 @@ import oqs  # liboqs-python
 # Constants
 # ---------------------------------------------------------------------------
 
-ALGORITHM = "Dilithium2"
+ALGORITHM = "ML-DSA-44"  # liboqs name for CRYSTALS-Dilithium2
 
 # Fixed sizes defined by the Dilithium2 parameter set (FIPS 204, security level 2).
 # These are checked at runtime to catch misuse early.
-DILITHIUM2_PRIVATE_KEY_BYTES = 2528
+DILITHIUM2_PRIVATE_KEY_BYTES = 2560
 DILITHIUM2_PUBLIC_KEY_BYTES = 1312
 DILITHIUM2_SIGNATURE_BYTES = 2420
 
