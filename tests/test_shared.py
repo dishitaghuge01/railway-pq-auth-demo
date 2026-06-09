@@ -15,8 +15,8 @@ crypto_utils.py:
   1. Generate keypair, sign realistic payload, verify → must pass
   2. Sign, flip one byte in signature, verify → must fail
   3. Sign, flip one byte in payload, verify with original sig → must fail
-  4. sign_payload returns exactly 2420 bytes
-  5. generate_keypair returns (2528 bytes, 1312 bytes)
+  4. sign_payload returns exactly 666 bytes (Falcon-padded-512)
+  5. generate_keypair returns (1281 bytes, 897 bytes)
   6. compute_identity_hash pipe separator prevents collision
   7. verify_signature never raises, always returns bool
 
@@ -24,7 +24,7 @@ payload.py:
   1. build_payload → pack → unpack roundtrip, payload dict preserved
   2. Packed size for 1-passenger ticket is in expected range
   3. Packed size for 6-passenger ticket is in expected range
-  4. 6-passenger packed size < 3116 (DataMatrix ECC200 max capacity)
+  4. 6-passenger packed size < 1558 (DataMatrix ECC200 144x144 binary capacity)
   5. Unpack then re-verify signature passes
   6. Tamper with packed bytes → unpack + verify fails
   7. Unreserved ticket pax entries have null berth and id
@@ -91,7 +91,7 @@ SAMPLE_PAYLOAD_BYTES = b'{"v":1,"type":"R","uuid":"550e8400-e29b-41d4-a716-44665
 # ===========================================================================
 
 def test_generate_keypair_sizes():
-    """generate_keypair() returns (2528, 1312) byte keys — FIPS 204 Falcon."""
+    """generate_keypair() returns (2528, 1312) byte keys — FIPS 204 Dilithium2."""
     priv, pub = generate_keypair()
     assert len(priv) == FALCON_PRIVATE_KEY_BYTES, (
         f"Private key should be {FALCON_PRIVATE_KEY_BYTES} bytes, got {len(priv)}"
@@ -486,9 +486,9 @@ def test_packed_size_1_passenger():
         passengers=SAMPLE_PASSENGERS_1,
     )
     packed = pack_signed_payload(payload, priv)
-    # Expected: 2 + ~370 + 2420 ≈ 2792 bytes. Allow generous range.
-    assert 2700 <= len(packed) <= 2900, (
-        f"1-passenger packed size {len(packed)} is outside expected range [2700, 2900]"
+    # Expected: 2 + ~282 + 666 = ~950 bytes. Allow generous range.
+    assert 850 <= len(packed) <= 1100, (
+        f"1-passenger packed size {len(packed)} is outside expected range [850, 1100]"
     )
     print(f"  ✓ 1-passenger packed size: {len(packed)} bytes")
 
@@ -510,14 +510,14 @@ def test_packed_size_6_passengers():
     )
     packed = pack_signed_payload(payload, priv)
 
-    DATAMATRIX_MAX_BYTES = 3116  # DataMatrix ECC200 144x144 binary capacity
+    DATAMATRIX_MAX_BYTES = 1558  # DataMatrix ECC200 144x144 binary capacity (Base256 scheme)
 
     assert len(packed) < DATAMATRIX_MAX_BYTES, (
         f"6-passenger packed size {len(packed)} exceeds DataMatrix capacity {DATAMATRIX_MAX_BYTES}"
     )
-    # Expected: 2 + ~570 + 2420 ≈ 2992. Allow generous range.
-    assert 2900 <= len(packed) <= 3100, (
-        f"6-passenger packed size {len(packed)} is outside expected range [2900, 3100]"
+    # Expected: 2 + ~712 + 666 = ~1380 bytes. Allow generous range.
+    assert 1250 <= len(packed) <= 1560, (
+        f"6-passenger packed size {len(packed)} is outside expected range [1250, 1560]"
     )
     headroom = DATAMATRIX_MAX_BYTES - len(packed)
     print(f"  ✓ 6-passenger packed size: {len(packed)} bytes ({headroom} bytes headroom in DataMatrix)")
@@ -540,9 +540,12 @@ def test_tampered_packed_bytes_fail_verification():
     )
     packed = pack_signed_payload(payload, priv)
 
-    # Flip a byte in the payload region (byte 10 — well inside the JSON)
+    # Flip a byte in the SIGNATURE region (last 100 bytes — safely past the JSON payload).
+    # Flipping inside the JSON payload corrupts UTF-8 and causes unpack_signed_payload
+    # to raise ValueError before verify_signature is even called. We want to test that
+    # verify_signature itself returns False, so we tamper the signature bytes directly.
     tampered = bytearray(packed)
-    tampered[10] ^= 0xFF
+    tampered[-50] ^= 0xFF   # 50 bytes from the end — well inside the 666-byte sig region
     tampered = bytes(tampered)
 
     _, raw_payload_bytes, raw_sig_bytes = unpack_signed_payload(tampered)
@@ -676,7 +679,7 @@ def run_all():
     print("=" * 70)
 
     # Warn about slow keypair generation
-    print("\nNote: Each test that calls generate_keypair() takes ~0.5–2s (Falcon).")
+    print("\nNote: Each test that calls generate_keypair() takes ~0.5–2s (Dilithium2).")
     print("Tests that reuse keypairs across multiple assertions are grouped to minimise this.\n")
 
     for name, fn in tests:

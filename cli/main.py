@@ -511,7 +511,7 @@ def keygen(
     typer.echo("")
     typer.secho("  ✓ Keypair generated successfully.", fg=typer.colors.GREEN, bold=True)
     _print_section("Key Details")
-    _print_kv("Algorithm",    "Falcon (FIPS 204 / CRYSTALS-Falcon, level 2)")
+    _print_kv("Algorithm", "Falcon-padded-512 (FIPS 206 / FN-DSA, level 1)")
     _print_kv("Security",     "128-bit post-quantum (resistant to Shor's algorithm)")
     _print_kv("Generated in", f"{elapsed:.2f}s")
     _print_kv("Private key",  f"{private_path}  ({len(private_key_bytes)} bytes, chmod 600)")

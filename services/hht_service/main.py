@@ -1053,7 +1053,7 @@ async def health(request: Request) -> HealthResponse:
         public_key_loaded=len(public_key_bytes) == FALCON_PUBLIC_KEY_BYTES,
         public_key_fingerprint=get_public_key_fingerprint(public_key_bytes),
         old_key_present=old_public_key_bytes is not None,
-        algorithm="Falcon (FIPS 204)",
+        algorithm="Falcon-padded-512 (FIPS 206)",
     )
 
 

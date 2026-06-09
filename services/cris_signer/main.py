@@ -436,7 +436,7 @@ async def get_public_key(request: Request) -> PublicKeyResponse:
         fingerprint_current=fp_current,
         fingerprint_previous=fp_previous,
         key_size_bytes=len(public_key_bytes),
-        algorithm="Falcon (FIPS 204 / CRYSTALS-Falcon , security level 2, 128-bit PQ security)",
+        algorithm="Falcon-padded-512 (FIPS 206 / FN-DSA, level 1)",
     )
 
 
