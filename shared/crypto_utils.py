@@ -2,15 +2,15 @@
 shared/crypto_utils.py
 
 Post-quantum cryptographic utilities for the Railway PQ Auth Demo.
-Uses CRYSTALS-Dilithium2 (FIPS 204 / NIST ML-DSA-44) via liboqs-python.
+Uses Falcon (FIPS 204 / NIST ML-DSA-44) via liboqs-python.
 
-Key sizes (Dilithium2):
-    Private key : 2528 bytes
-    Public key  : 1312 bytes
-    Signature   : 2420 bytes
+Key sizes (Falcon):
+    Private key : 1281 bytes
+    Public key  : 897 bytes
+    Signature   : 809 bytes
 
 Unlike the v1 ECDSA implementation, keys are stored as raw bytes (.bin files),
-not PEM-encoded strings, because Dilithium keys have no standardised PEM format
+not PEM-encoded strings, because Falcon keys have no standardised PEM format
 in mainstream tooling. All sign/verify functions accept and return raw bytes.
 """
 
@@ -24,13 +24,13 @@ import oqs  # liboqs-python
 # Constants
 # ---------------------------------------------------------------------------
 
-ALGORITHM = "ML-DSA-44"  # liboqs name for CRYSTALS-Dilithium2
+ALGORITHM = "Falcon-padded-512"  # liboqs name for Falcon-512, FIPS 204 level 2 signature scheme
 
-# Fixed sizes defined by the Dilithium2 parameter set (FIPS 204, security level 2).
+# Fixed sizes defined by the Falcon parameter set (FIPS 204, security level 2).
 # These are checked at runtime to catch misuse early.
-DILITHIUM2_PRIVATE_KEY_BYTES = 2560
-DILITHIUM2_PUBLIC_KEY_BYTES = 1312
-DILITHIUM2_SIGNATURE_BYTES = 2420
+FALCON_PRIVATE_KEY_BYTES = 1281
+FALCON_PUBLIC_KEY_BYTES = 897
+FALCON_SIGNATURE_BYTES = 666
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ DILITHIUM2_SIGNATURE_BYTES = 2420
 
 def generate_keypair() -> tuple[bytes, bytes]:
     """
-    Generate a new Dilithium2 keypair.
+    Generate a new Falcon keypair.
 
     Returns:
         (private_key_bytes, public_key_bytes)
@@ -54,12 +54,12 @@ def generate_keypair() -> tuple[bytes, bytes]:
         public_key_bytes = signer.generate_keypair()
         private_key_bytes = signer.export_secret_key()
 
-    assert len(private_key_bytes) == DILITHIUM2_PRIVATE_KEY_BYTES, (
-        f"Expected private key of {DILITHIUM2_PRIVATE_KEY_BYTES} bytes, "
+    assert len(private_key_bytes) == FALCON_PRIVATE_KEY_BYTES, (
+        f"Expected private key of {FALCON_PRIVATE_KEY_BYTES} bytes, "
         f"got {len(private_key_bytes)}"
     )
-    assert len(public_key_bytes) == DILITHIUM2_PUBLIC_KEY_BYTES, (
-        f"Expected public key of {DILITHIUM2_PUBLIC_KEY_BYTES} bytes, "
+    assert len(public_key_bytes) == FALCON_PUBLIC_KEY_BYTES, (
+        f"Expected public key of {FALCON_PUBLIC_KEY_BYTES} bytes, "
         f"got {len(public_key_bytes)}"
     )
 
@@ -77,9 +77,9 @@ def save_private_key(key_bytes: bytes, path: str) -> None:
     The file is created with mode 0o600 (owner read/write only).
     Raises ValueError if key_bytes is not the expected length.
     """
-    if len(key_bytes) != DILITHIUM2_PRIVATE_KEY_BYTES:
+    if len(key_bytes) != FALCON_PRIVATE_KEY_BYTES:
         raise ValueError(
-            f"Private key must be {DILITHIUM2_PRIVATE_KEY_BYTES} bytes, "
+            f"Private key must be {FALCON_PRIVATE_KEY_BYTES} bytes, "
             f"got {len(key_bytes)}"
         )
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -94,9 +94,9 @@ def save_public_key(key_bytes: bytes, path: str) -> None:
 
     Raises ValueError if key_bytes is not the expected length.
     """
-    if len(key_bytes) != DILITHIUM2_PUBLIC_KEY_BYTES:
+    if len(key_bytes) != FALCON_PUBLIC_KEY_BYTES:
         raise ValueError(
-            f"Public key must be {DILITHIUM2_PUBLIC_KEY_BYTES} bytes, "
+            f"Public key must be {FALCON_PUBLIC_KEY_BYTES} bytes, "
             f"got {len(key_bytes)}"
         )
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -117,10 +117,10 @@ def load_private_key(path: str) -> bytes:
     """
     with open(path, "rb") as f:
         key_bytes = f.read()
-    if len(key_bytes) != DILITHIUM2_PRIVATE_KEY_BYTES:
+    if len(key_bytes) != FALCON_PRIVATE_KEY_BYTES:
         raise ValueError(
             f"Private key file {path!r} contains {len(key_bytes)} bytes, "
-            f"expected {DILITHIUM2_PRIVATE_KEY_BYTES}. File may be corrupt."
+            f"expected {FALCON_PRIVATE_KEY_BYTES}. File may be corrupt."
         )
     return key_bytes
 
@@ -138,10 +138,10 @@ def load_public_key(path: str) -> bytes:
     """
     with open(path, "rb") as f:
         key_bytes = f.read()
-    if len(key_bytes) != DILITHIUM2_PUBLIC_KEY_BYTES:
+    if len(key_bytes) != FALCON_PUBLIC_KEY_BYTES:
         raise ValueError(
             f"Public key file {path!r} contains {len(key_bytes)} bytes, "
-            f"expected {DILITHIUM2_PUBLIC_KEY_BYTES}. File may be corrupt."
+            f"expected {FALCON_PUBLIC_KEY_BYTES}. File may be corrupt."
         )
     return key_bytes
 
@@ -152,14 +152,14 @@ def load_public_key(path: str) -> bytes:
 
 def sign_payload(payload_bytes: bytes, private_key_bytes: bytes) -> bytes:
     """
-    Sign payload_bytes using Dilithium2.
+    Sign payload_bytes using Falcon.
 
     Args:
         payload_bytes    : The raw bytes of the serialised ticket payload JSON.
-        private_key_bytes: 2528-byte Dilithium2 private key.
+        private_key_bytes: 2528-byte Falcon private key.
 
     Returns:
-        2420-byte raw Dilithium2 signature.
+        2420-byte raw Falcon signature.
 
     Raises:
         ValueError : if private_key_bytes is the wrong length.
@@ -171,9 +171,9 @@ def sign_payload(payload_bytes: bytes, private_key_bytes: bytes) -> bytes:
         accessible to application code. In this demo the private key is loaded
         from disk and passed in, simulating the HSM signing API.
     """
-    if len(private_key_bytes) != DILITHIUM2_PRIVATE_KEY_BYTES:
+    if len(private_key_bytes) != FALCON_PRIVATE_KEY_BYTES:
         raise ValueError(
-            f"Private key must be {DILITHIUM2_PRIVATE_KEY_BYTES} bytes, "
+            f"Private key must be {FALCON_PRIVATE_KEY_BYTES} bytes, "
             f"got {len(private_key_bytes)}"
         )
 
@@ -181,12 +181,12 @@ def sign_payload(payload_bytes: bytes, private_key_bytes: bytes) -> bytes:
         with oqs.Signature(ALGORITHM, secret_key=private_key_bytes) as signer:
             sig_bytes = signer.sign(payload_bytes)
     except Exception as exc:
-        raise RuntimeError(f"Dilithium2 signing failed: {exc}") from exc
+        raise RuntimeError(f"Falcon signing failed: {exc}") from exc
 
-    if len(sig_bytes) != DILITHIUM2_SIGNATURE_BYTES:
+    if len(sig_bytes) != FALCON_SIGNATURE_BYTES:
         raise RuntimeError(
-            f"Dilithium2 produced signature of {len(sig_bytes)} bytes, "
-            f"expected {DILITHIUM2_SIGNATURE_BYTES}. This is a bug."
+            f"Falcon produced signature of {len(sig_bytes)} bytes, "
+            f"expected {FALCON_SIGNATURE_BYTES}. This is a bug."
         )
 
     return sig_bytes
@@ -198,12 +198,12 @@ def verify_signature(
     public_key_bytes: bytes,
 ) -> bool:
     """
-    Verify a Dilithium2 signature against payload_bytes.
+    Verify a Falcon signature against payload_bytes.
 
     Args:
         payload_bytes   : The raw bytes that were originally signed.
-        sig_bytes       : 2420-byte Dilithium2 signature to verify.
-        public_key_bytes: 1312-byte Dilithium2 public key.
+        sig_bytes       : 2420-byte Falcon signature to verify.
+        public_key_bytes: 1312-byte Falcon public key.
 
     Returns:
         True if the signature is valid, False for any other reason
@@ -214,9 +214,9 @@ def verify_signature(
     This is intentional: the HHT app treats any non-True result as FORGED.
     """
     try:
-        if len(public_key_bytes) != DILITHIUM2_PUBLIC_KEY_BYTES:
+        if len(public_key_bytes) != FALCON_PUBLIC_KEY_BYTES:
             return False
-        if len(sig_bytes) != DILITHIUM2_SIGNATURE_BYTES:
+        if len(sig_bytes) != FALCON_SIGNATURE_BYTES:
             return False
         if not payload_bytes:
             return False

@@ -8,7 +8,7 @@ over the REST APIs — no crypto or DB logic lives here directly.
 
 Commands
 --------
-  keygen                  Generate / rotate Dilithium2 keypair (.bin files)
+  keygen                  Generate / rotate falcon keypair (.bin files)
   book                    Issue a new ticket (interactive or --json)
   verify                  Verify a ticket via HHT service
   audit stats             Aggregated verification statistics
@@ -60,9 +60,9 @@ if _repo_root not in sys.path:
 
 from shared.config import settings
 from shared.crypto_utils import (
-    DILITHIUM2_PRIVATE_KEY_BYTES,
-    DILITHIUM2_PUBLIC_KEY_BYTES,
-    DILITHIUM2_SIGNATURE_BYTES,
+    FALCON_PRIVATE_KEY_BYTES,
+    FALCON_PUBLIC_KEY_BYTES,
+    FALCON_SIGNATURE_BYTES,
     generate_keypair,
     get_public_key_fingerprint,
     save_private_key,
@@ -92,7 +92,7 @@ app.add_typer(chart_app, name="chart")
 
 @app.callback()
 def root():
-    """Railway PQ Auth Demo — Dilithium2 / FIPS 204 / DataMatrix ECC200."""
+    """Railway PQ Auth Demo — Falcon / FIPS 204 / DataMatrix ECC200."""
     pass
 
 
@@ -339,7 +339,7 @@ def _print_verify_result(data: dict):
     key_used = data.get("key_used",        "—")
 
     _print_kv(
-        "Dilithium2 Signature",
+        "Falcon Signature",
         "✓ VALID" if sig_ok else "✗ INVALID",
         typer.colors.GREEN if sig_ok else typer.colors.RED,
     )
@@ -399,9 +399,9 @@ def keygen(
     ),
 ):
     """
-    Generate a Dilithium2 keypair (FIPS 204) and write to the keys/ directory.
+    Generate a Falcon keypair (FIPS 204) and write to the keys/ directory.
 
-    Keys are stored as raw bytes in .bin files (not PEM — Dilithium keys have
+    Keys are stored as raw bytes in .bin files (not PEM — Falcon keys have
     no standardised PEM format). private_key.bin simulates the HSM private key.
 
     Key sizes:
@@ -489,7 +489,7 @@ def keygen(
     # Generate
     typer.echo("")
     typer.secho(
-        "  Generating Dilithium2 keypair (FIPS 204)...",
+        "  Generating Falcon keypair (FIPS 204)...",
         fg=typer.colors.BRIGHT_BLACK,
     )
     typer.secho(
@@ -511,7 +511,7 @@ def keygen(
     typer.echo("")
     typer.secho("  ✓ Keypair generated successfully.", fg=typer.colors.GREEN, bold=True)
     _print_section("Key Details")
-    _print_kv("Algorithm",    "Dilithium2 (FIPS 204 / CRYSTALS-Dilithium, level 2)")
+    _print_kv("Algorithm",    "Falcon (FIPS 204 / CRYSTALS-Falcon, level 2)")
     _print_kv("Security",     "128-bit post-quantum (resistant to Shor's algorithm)")
     _print_kv("Generated in", f"{elapsed:.2f}s")
     _print_kv("Private key",  f"{private_path}  ({len(private_key_bytes)} bytes, chmod 600)")
@@ -665,7 +665,7 @@ def book(
     _print_kv("PNR",              data["pnr"],              typer.colors.GREEN)
     _print_kv("UUID",             data["uuid"])
     _print_kv("Barcode size",     f"{data.get('barcode_size_bytes', '?')} bytes  "
-                                  f"(DataMatrix ECC200, Dilithium2 signed)")
+                                  f"(DataMatrix ECC200, Falcon signed)")
     _print_kv("Ticket URL",       data["ticket_url"],       typer.colors.CYAN)
     _print_kv("Barcode URL",      data["qr_url"],           typer.colors.CYAN)
     typer.echo("")
@@ -1002,7 +1002,7 @@ def clone(
 
     Copies a real ticket's packed bytes to a new DataMatrix barcode image.
     The barcode content is byte-for-byte identical — same UUID, same valid
-    Dilithium2 signature. When the clone is verified after the original,
+    Falcon signature. When the clone is verified after the original,
     the audit server flags it as DUPLICATE.
 
     This demonstrates that cloning the physical barcode does not help an
@@ -1038,7 +1038,7 @@ def clone(
     _print_kv("UUID being cloned",  payload_dict.get("uuid",  "—"), typer.colors.YELLOW)
     _print_kv("Train",              payload_dict.get("train", "—"))
     _print_kv("Class",              payload_dict.get("class", "—"))
-    _print_kv("Packed bytes",       f"{len(packed_bytes)} bytes (Dilithium2 sig included)")
+    _print_kv("Packed bytes",       f"{len(packed_bytes)} bytes (Falcon sig included)")
 
     # Generate clone DataMatrix PNG — same packed bytes, new file name
     os.makedirs(settings.TICKETS_DIR, exist_ok=True)
@@ -1092,7 +1092,7 @@ def forge(
     DEMO ATTACK: Forge a ticket by tampering with a payload field.
 
     Modifies a field in the binary-packed payload and reassembles the
-    packed bytes WITHOUT re-signing. The original Dilithium2 signature
+    packed bytes WITHOUT re-signing. The original Falcon signature
     is kept but now covers the ORIGINAL payload bytes — not the modified
     ones — so signature verification FAILS → result: FORGED.
 
@@ -1112,7 +1112,7 @@ def forge(
     typer.secho(
         "  Simulates an attacker who intercepts a legitimate ticket and\n"
         "  modifies a field (e.g. upgrades class SL → 1A).\n"
-        "  The Dilithium2 signature still exists but now covers DIFFERENT\n"
+        "  The Falcon signature still exists but now covers DIFFERENT\n"
         "  payload bytes, so cryptographic verification fails.",
         fg=typer.colors.BRIGHT_BLACK,
     )
@@ -1205,7 +1205,7 @@ def forge(
     )
     typer.secho(
         "  Expected result: FORGED\n"
-        "  The Dilithium2 signature check fails because the payload bytes\n"
+        "  The Falcon signature check fails because the payload bytes\n"
         "  no longer match what was signed by the CRIS HSM.\n"
         "  This is true even though the signature bytes are present and\n"
         "  structurally valid — the cryptographic binding is broken.",

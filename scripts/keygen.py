@@ -13,7 +13,7 @@ What it does:
     1. If keys/public_key.bin already exists:
          --rotate : moves public_key.bin → old_public_key.bin
          default  : warns and asks for confirmation before overwriting
-    2. Generates a new Dilithium2 keypair via liboqs
+    2. Generates a new Falcon keypair via liboqs
     3. Writes private_key.bin (mode 0o600, gitignored) and public_key.bin
     4. Prints key sizes, fingerprint, and next steps
 
@@ -49,8 +49,8 @@ if _repo_root not in sys.path:
 
 from shared.config import settings
 from shared.crypto_utils import (
-    DILITHIUM2_PRIVATE_KEY_BYTES,
-    DILITHIUM2_PUBLIC_KEY_BYTES,
+    FALCON_PRIVATE_KEY_BYTES,
+    FALCON_PUBLIC_KEY_BYTES,
     generate_keypair,
     get_public_key_fingerprint,
     save_private_key,
@@ -93,7 +93,7 @@ def run_keygen(force: bool = False, rotate: bool = False) -> None:
     old_public_key_path  = _path("old_public_key.bin")
 
     _print_separator()
-    print(_bold("Railway PQ Auth Demo — Dilithium2 Key Generation"))
+    print(_bold("Railway PQ Auth Demo — Falcon Key Generation"))
     print(_bold("Simulates one-time HSM keypair initialisation at CRIS HQ"))
     _print_separator()
 
@@ -159,7 +159,7 @@ def run_keygen(force: bool = False, rotate: bool = False) -> None:
     # -----------------------------------------------------------------------
     # Generate keypair
     # -----------------------------------------------------------------------
-    print(f"\n{_cyan('Generating Dilithium2 keypair...')} (this may take 1–3 seconds)")
+    print(f"\n{_cyan('Generating Falcon keypair...')} (this may take 1–3 seconds)")
     t_start = time.perf_counter()
 
     private_key_bytes, public_key_bytes = generate_keypair()
@@ -168,8 +168,8 @@ def run_keygen(force: bool = False, rotate: bool = False) -> None:
     print(f"Keypair generated in {elapsed:.2f}s")
 
     # Verify sizes before writing anything
-    assert len(private_key_bytes) == DILITHIUM2_PRIVATE_KEY_BYTES
-    assert len(public_key_bytes) == DILITHIUM2_PUBLIC_KEY_BYTES
+    assert len(private_key_bytes) == FALCON_PRIVATE_KEY_BYTES
+    assert len(public_key_bytes) == FALCON_PUBLIC_KEY_BYTES
 
     # -----------------------------------------------------------------------
     # Write key files
@@ -185,7 +185,7 @@ def run_keygen(force: bool = False, rotate: bool = False) -> None:
     _print_separator()
     print(_green("✓ Keys generated successfully"))
     _print_separator()
-    print(f"  Algorithm      : Dilithium2 (FIPS 204 / CRYSTALS-Dilithium, level 2)")
+    print(f"  Algorithm      : Falcon (FIPS 204 / CRYSTALS-Falcon , level 2)")
     print(f"  Security level : 128-bit post-quantum (resistant to Shor's algorithm)")
     print(f"  Private key    : {len(private_key_bytes)} bytes → {private_key_path}")
     print(f"  Public key     : {len(public_key_bytes)} bytes → {public_key_path}")
@@ -216,7 +216,7 @@ def run_keygen(force: bool = False, rotate: bool = False) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate or rotate Dilithium2 keys for the Railway PQ Auth Demo.",
+        description="Generate or rotate Falcon keys for the Railway PQ Auth Demo.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

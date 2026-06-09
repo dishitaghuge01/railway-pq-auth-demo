@@ -10,7 +10,7 @@ This service is the verification engine. It loads both public keys at startup
 verification pipeline described in the proposal:
 
   1. Binary unpack — parse the DataMatrix barcode content
-  2. Signature verification — Dilithium2 against current key, then previous key
+  2. Signature verification — Falcon against current key, then previous key
   3. Validity window — vf/vu timestamp check
   4. Train match — payload train vs TTE's expected train
   5. Date match — payload date vs current calendar date
@@ -78,7 +78,7 @@ if _repo_root not in sys.path:
 
 from shared.config import settings
 from shared.crypto_utils import (
-    DILITHIUM2_PUBLIC_KEY_BYTES,
+    FALCON_PUBLIC_KEY_BYTES,
     compute_identity_hash,
     get_public_key_fingerprint,
     load_public_key,
@@ -197,7 +197,7 @@ app = FastAPI(
     title="HHT Verification Service",
     description=(
         "Simulates the TTE Hand Held Terminal verification backend. "
-        "Implements the full Dilithium2 signature verification pipeline "
+        "Implements the full Falcon signature verification pipeline "
         "plus chart lookup, identity check, and audit logging."
     ),
     version="1.0.0",
@@ -280,7 +280,7 @@ class VerifyResponse(BaseModel):
         None,
         description="Per-passenger verification results (only present when signature is valid)",
     )
-    signature_valid: bool = Field(..., description="Whether the Dilithium2 signature verified")
+    signature_valid: bool = Field(..., description="Whether the Falcon signature verified")
     chart_matched: Optional[bool] = Field(
         None,
         description="Whether the UUID/berths were found in the local chart (null for unreserved)",
@@ -739,7 +739,7 @@ def _run_verification_pipeline(
     response_model=VerifyResponse,
     summary="Verify a ticket",
     description=(
-        "Full verification pipeline: binary unpack → Dilithium2 signature → "
+        "Full verification pipeline: binary unpack → Falcon signature → "
         "validity window → train/date match → chart lookup → identity check → "
         "audit log. Returns a structured result the HHT app displays to the TTE."
     ),
@@ -772,7 +772,7 @@ async def verify_ticket(body: VerifyRequest, request: Request) -> VerifyResponse
     )
 
     # Run the synchronous pipeline in a threadpool to avoid blocking the event loop.
-    # (Dilithium2 verification is CPU-bound via liboqs C library.)
+    # (Falcon verification is CPU-bound via liboqs C library.)
     db_gen = get_db()
     db: Session = next(db_gen)
     try:
@@ -1050,10 +1050,10 @@ async def health(request: Request) -> HealthResponse:
 
     return HealthResponse(
         status="ok",
-        public_key_loaded=len(public_key_bytes) == DILITHIUM2_PUBLIC_KEY_BYTES,
+        public_key_loaded=len(public_key_bytes) == FALCON_PUBLIC_KEY_BYTES,
         public_key_fingerprint=get_public_key_fingerprint(public_key_bytes),
         old_key_present=old_public_key_bytes is not None,
-        algorithm="Dilithium2 (FIPS 204)",
+        algorithm="Falcon (FIPS 204)",
     )
 
 

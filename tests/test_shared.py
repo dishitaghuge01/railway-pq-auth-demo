@@ -46,9 +46,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.crypto_utils import (
-    DILITHIUM2_PRIVATE_KEY_BYTES,
-    DILITHIUM2_PUBLIC_KEY_BYTES,
-    DILITHIUM2_SIGNATURE_BYTES,
+    FALCON_PRIVATE_KEY_BYTES,
+    FALCON_PUBLIC_KEY_BYTES,
+    FALCON_SIGNATURE_BYTES,
     compute_identity_hash,
     generate_keypair,
     get_public_key_fingerprint,
@@ -56,7 +56,7 @@ from shared.crypto_utils import (
     verify_signature,
 )
 from shared.payload import (
-    DILITHIUM2_SIGNATURE_BYTES as PAYLOAD_SIG_BYTES,
+    FALCON_SIGNATURE_BYTES as PAYLOAD_SIG_BYTES,
     LENGTH_FIELD_BYTES,
     RESERVED_VALID_FROM_OFFSET,
     RESERVED_VALID_UNTIL_OFFSET,
@@ -91,13 +91,13 @@ SAMPLE_PAYLOAD_BYTES = b'{"v":1,"type":"R","uuid":"550e8400-e29b-41d4-a716-44665
 # ===========================================================================
 
 def test_generate_keypair_sizes():
-    """generate_keypair() returns (2528, 1312) byte keys — FIPS 204 Dilithium2."""
+    """generate_keypair() returns (2528, 1312) byte keys — FIPS 204 Falcon."""
     priv, pub = generate_keypair()
-    assert len(priv) == DILITHIUM2_PRIVATE_KEY_BYTES, (
-        f"Private key should be {DILITHIUM2_PRIVATE_KEY_BYTES} bytes, got {len(priv)}"
+    assert len(priv) == FALCON_PRIVATE_KEY_BYTES, (
+        f"Private key should be {FALCON_PRIVATE_KEY_BYTES} bytes, got {len(priv)}"
     )
-    assert len(pub) == DILITHIUM2_PUBLIC_KEY_BYTES, (
-        f"Public key should be {DILITHIUM2_PUBLIC_KEY_BYTES} bytes, got {len(pub)}"
+    assert len(pub) == FALCON_PUBLIC_KEY_BYTES, (
+        f"Public key should be {FALCON_PUBLIC_KEY_BYTES} bytes, got {len(pub)}"
     )
     print(f"  ✓ Private key: {len(priv)} bytes")
     print(f"  ✓ Public key:  {len(pub)} bytes")
@@ -107,8 +107,8 @@ def test_sign_returns_correct_size():
     """sign_payload() returns exactly 2420 bytes."""
     priv, pub = generate_keypair()
     sig = sign_payload(SAMPLE_PAYLOAD_BYTES, priv)
-    assert len(sig) == DILITHIUM2_SIGNATURE_BYTES, (
-        f"Signature should be {DILITHIUM2_SIGNATURE_BYTES} bytes, got {len(sig)}"
+    assert len(sig) == FALCON_SIGNATURE_BYTES, (
+        f"Signature should be {FALCON_SIGNATURE_BYTES} bytes, got {len(sig)}"
     )
     print(f"  ✓ Signature: {len(sig)} bytes")
 
@@ -170,19 +170,19 @@ def test_verify_never_raises():
     # Empty inputs
     assert verify_signature(b"", b"", b"") is False
     # Wrong length public key
-    assert verify_signature(SAMPLE_PAYLOAD_BYTES, b"\x00" * DILITHIUM2_SIGNATURE_BYTES, b"\x00" * 32) is False
+    assert verify_signature(SAMPLE_PAYLOAD_BYTES, b"\x00" * FALCON_SIGNATURE_BYTES, b"\x00" * 32) is False
     # Wrong length signature
     priv, pub = generate_keypair()
     assert verify_signature(SAMPLE_PAYLOAD_BYTES, b"\x00" * 100, pub) is False
     # None-like: bytes that are valid length but garbage content
-    assert verify_signature(SAMPLE_PAYLOAD_BYTES, b"\x00" * DILITHIUM2_SIGNATURE_BYTES, b"\x00" * DILITHIUM2_PUBLIC_KEY_BYTES) is False
+    assert verify_signature(SAMPLE_PAYLOAD_BYTES, b"\x00" * FALCON_SIGNATURE_BYTES, b"\x00" * FALCON_PUBLIC_KEY_BYTES) is False
     print("  ✓ verify_signature never raises, returns False for all garbage inputs")
 
 
 def test_verify_fails_on_empty_payload():
     """Empty payload bytes return False, not a crash."""
     priv, pub = generate_keypair()
-    result = verify_signature(b"", b"\x00" * DILITHIUM2_SIGNATURE_BYTES, pub)
+    result = verify_signature(b"", b"\x00" * FALCON_SIGNATURE_BYTES, pub)
     assert result is False
     print("  ✓ Empty payload verifies False")
 
@@ -575,7 +575,7 @@ def test_wire_format_structure():
 
     recovered = json.loads(payload_bytes_manual.decode("utf-8"))
     assert recovered == payload
-    assert len(sig_bytes_manual) == DILITHIUM2_SIGNATURE_BYTES
+    assert len(sig_bytes_manual) == FALCON_SIGNATURE_BYTES
     print(f"  ✓ Wire format correct: 2-byte length={declared_len}, "
           f"payload={len(payload_bytes_manual)}B, sig={len(sig_bytes_manual)}B")
 
@@ -620,7 +620,7 @@ def test_estimate_packed_size_bounds():
     """estimate_packed_size returns values in a plausible range."""
     for n in [1, 3, 6]:
         est = estimate_packed_size(n, TYPE_RESERVED)
-        assert est > DILITHIUM2_SIGNATURE_BYTES, "Estimate must be larger than signature alone"
+        assert est > FALCON_SIGNATURE_BYTES, "Estimate must be larger than signature alone"
         assert est < 3116, f"Estimate for {n} passengers {est} exceeds DataMatrix capacity"
         print(f"  ✓ Estimated packed size for {n} passengers: {est} bytes")
 
@@ -676,7 +676,7 @@ def run_all():
     print("=" * 70)
 
     # Warn about slow keypair generation
-    print("\nNote: Each test that calls generate_keypair() takes ~0.5–2s (Dilithium2).")
+    print("\nNote: Each test that calls generate_keypair() takes ~0.5–2s (Falcon).")
     print("Tests that reuse keypairs across multiple assertions are grouped to minimise this.\n")
 
     for name, fn in tests:

@@ -51,8 +51,8 @@ if _repo_root not in sys.path:
 
 from shared.config import settings
 from shared.crypto_utils import (
-    DILITHIUM2_PRIVATE_KEY_BYTES,
-    DILITHIUM2_PUBLIC_KEY_BYTES,
+    FALCON_PRIVATE_KEY_BYTES,
+    FALCON_PUBLIC_KEY_BYTES,
     get_public_key_fingerprint,
     load_private_key,
     load_public_key,
@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown — zero out key material from memory as best-effort
     if hasattr(app.state, "private_key_bytes") and app.state.private_key_bytes:
-        app.state.private_key_bytes = bytes(DILITHIUM2_PRIVATE_KEY_BYTES)
+        app.state.private_key_bytes = bytes(FALCON_PRIVATE_KEY_BYTES)
     log.info("CRIS Signer shutdown. Key material cleared.")
 
 
@@ -149,7 +149,7 @@ app = FastAPI(
     title="CRIS Signing Service",
     description=(
         "Simulates the CRIS HSM signing microservice. "
-        "Signs ticket payloads using CRYSTALS-Dilithium2 (FIPS 204). "
+        "Signs ticket payloads using CRYSTALS-Falcon (FIPS 204). "
         "This is the only service with access to the private key."
     ),
     version="1.0.0",
@@ -261,7 +261,7 @@ class SignResponse(BaseModel):
         description=(
             "Base64-encoded packed bytes ready for DataMatrix encoding. "
             "Decode to raw bytes, then pass to DataMatrix generator. "
-            "Format: [2-byte BE uint16 payload_len][payload JSON][Dilithium2 sig]"
+            "Format: [2-byte BE uint16 payload_len][payload JSON][Falcon sig]"
         ),
     )
     packed_size_bytes: int = Field(
@@ -280,11 +280,11 @@ class SignResponse(BaseModel):
 
 class PublicKeyResponse(BaseModel):
     """Response from GET /public-key."""
-    current_b64: str = Field(..., description="Base64-encoded current Dilithium2 public key (1312 bytes)")
+    current_b64: str = Field(..., description="Base64-encoded current Falcon public key (1312 bytes)")
     previous_b64: Optional[str] = Field(None, description="Base64-encoded previous public key, or null if no rotation has occurred")
     fingerprint_current: str = Field(..., description="First 16 hex chars of SHA256(current public key)")
     fingerprint_previous: Optional[str] = Field(None, description="Fingerprint of previous key, or null")
-    key_size_bytes: int = Field(..., description="Public key size in bytes (always 1312 for Dilithium2)")
+    key_size_bytes: int = Field(..., description="Public key size in bytes (always 1312 for Falcon)")
     algorithm: str = Field(..., description="Signing algorithm identifier")
 
 
@@ -308,7 +308,7 @@ class HealthResponse(BaseModel):
     summary="Sign a ticket payload",
     description=(
         "Called by PRS Booking Service and IRCTC at ticket generation. "
-        "Builds the canonical payload, signs it with Dilithium2 via the simulated HSM, "
+        "Builds the canonical payload, signs it with Falcon via the simulated HSM, "
         "and returns the packed bytes base64-encoded for DataMatrix generation."
     ),
 )
@@ -412,7 +412,7 @@ async def sign_ticket(request: Request, body: SignRequest) -> SignResponse:
     response_model=PublicKeyResponse,
     summary="Get current and previous public keys",
     description=(
-        "Returns the Dilithium2 public keys embedded in all HHT, IRCTC, and RailOne apps. "
+        "Returns the Falcon public keys embedded in all HHT, IRCTC, and RailOne apps. "
         "Both the current key and the previous key (if a rotation has occurred) are returned. "
         "HHT apps try current key first, then previous key, for tickets issued around rotation time."
     ),
@@ -436,7 +436,7 @@ async def get_public_key(request: Request) -> PublicKeyResponse:
         fingerprint_current=fp_current,
         fingerprint_previous=fp_previous,
         key_size_bytes=len(public_key_bytes),
-        algorithm="Dilithium2 (FIPS 204 / CRYSTALS-Dilithium, security level 2, 128-bit PQ security)",
+        algorithm="Falcon (FIPS 204 / CRYSTALS-Falcon , security level 2, 128-bit PQ security)",
     )
 
 
@@ -452,8 +452,8 @@ async def health(request: Request) -> HealthResponse:
 
     return HealthResponse(
         status="ok",
-        hsm_loaded=len(private_key_bytes) == DILITHIUM2_PRIVATE_KEY_BYTES,
-        algorithm="Dilithium2",
+        hsm_loaded=len(private_key_bytes) == FALCON_PRIVATE_KEY_BYTES,
+        algorithm="Falcon",
         private_key_size_bytes=len(private_key_bytes),
         public_key_fingerprint=get_public_key_fingerprint(public_key_bytes),
         old_key_present=old_public_key_bytes is not None,

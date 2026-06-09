@@ -12,7 +12,7 @@ The v1 (ECDSA) implementation used a JWT-inspired text format:
 This worked because an ECDSA P-256 signature is 71–72 bytes, which after
 base64url encoding adds ~96 bytes to the QR payload — acceptable for a QR code.
 
-The Dilithium2 signature is 2420 bytes. Base64url-encoding it produces ~3227
+The Falcon signature is 2420 bytes. Base64url-encoding it produces ~3227
 bytes for the signature alone. The full JWT-style string would be ~3800 bytes,
 which exceeds the 3116-byte binary capacity of a maximum-size DataMatrix ECC200.
 
@@ -20,7 +20,7 @@ Instead, v2 uses a compact binary format:
 
     [ 2 bytes big-endian uint16 : payload_len ]
     [ payload_len bytes         : UTF-8 JSON  ]
-    [ 2420 bytes                : Dilithium2 raw signature ]
+    [ 2420 bytes                : Falcon raw signature ]
 
 Total for a 6-passenger ticket: 2 + ~570 + 2420 = ~2992 bytes.
 DataMatrix ECC200 max capacity: 3116 bytes.
@@ -49,7 +49,7 @@ import uuid as uuid_module
 from typing import Optional
 
 from shared.crypto_utils import (
-    DILITHIUM2_SIGNATURE_BYTES,
+    FALCON_SIGNATURE_BYTES,
     compute_identity_hash,
     sign_payload,
     verify_signature,
@@ -211,11 +211,11 @@ def pack_signed_payload(payload_dict: dict, private_key_bytes: bytes) -> bytes:
     Wire format:
         Bytes 0–1           : big-endian uint16, length of the JSON payload
         Bytes 2 – 2+len-1   : UTF-8 encoded compact JSON of payload_dict
-        Bytes 2+len – end   : raw Dilithium2 signature (2420 bytes)
+        Bytes 2+len – end   : raw Falcon signature (2420 bytes)
 
     Args:
         payload_dict      : Dict as returned by build_payload().
-        private_key_bytes : 2528-byte Dilithium2 private key.
+        private_key_bytes : 2528-byte Falcon private key.
 
     Returns:
         Raw bytes ready to be encoded into a DataMatrix barcode.
@@ -270,7 +270,7 @@ def unpack_signed_payload(packed_bytes: bytes) -> tuple[dict, bytes, bytes]:
 
         payload_dict      : Parsed ticket payload as a Python dict.
         raw_payload_bytes : The original UTF-8 JSON bytes (not re-serialised).
-        raw_sig_bytes     : 2420-byte Dilithium2 signature.
+        raw_sig_bytes     : 2420-byte Falcon signature.
 
     Raises:
         ValueError : for any structural problem:
@@ -280,7 +280,7 @@ def unpack_signed_payload(packed_bytes: bytes) -> tuple[dict, bytes, bytes]:
                      - payload JSON is not valid UTF-8
                      - payload JSON is not a valid JSON object
     """
-    min_bytes = LENGTH_FIELD_BYTES + 1 + DILITHIUM2_SIGNATURE_BYTES
+    min_bytes = LENGTH_FIELD_BYTES + 1 + FALCON_SIGNATURE_BYTES
     if len(packed_bytes) < min_bytes:
         raise ValueError(
             f"packed_bytes is {len(packed_bytes)} bytes, minimum is {min_bytes}. "
@@ -294,12 +294,12 @@ def unpack_signed_payload(packed_bytes: bytes) -> tuple[dict, bytes, bytes]:
     )
 
     # 2. Validate length makes sense given the total buffer
-    expected_total = LENGTH_FIELD_BYTES + payload_len + DILITHIUM2_SIGNATURE_BYTES
+    expected_total = LENGTH_FIELD_BYTES + payload_len + FALCON_SIGNATURE_BYTES
     if len(packed_bytes) != expected_total:
         raise ValueError(
             f"Length field declares payload of {payload_len} bytes. "
             f"Expected total {expected_total} bytes "
-            f"({LENGTH_FIELD_BYTES} + {payload_len} + {DILITHIUM2_SIGNATURE_BYTES}), "
+            f"({LENGTH_FIELD_BYTES} + {payload_len} + {FALCON_SIGNATURE_BYTES}), "
             f"but got {len(packed_bytes)} bytes. "
             "Barcode data may be truncated or corrupt."
         )
@@ -312,11 +312,11 @@ def unpack_signed_payload(packed_bytes: bytes) -> tuple[dict, bytes, bytes]:
     # 4. Slice signature bytes
     raw_sig_bytes = packed_bytes[payload_end:]
 
-    if len(raw_sig_bytes) != DILITHIUM2_SIGNATURE_BYTES:
+    if len(raw_sig_bytes) != FALCON_SIGNATURE_BYTES:
         # Should be unreachable given the length check above, but be explicit.
         raise ValueError(
             f"Signature is {len(raw_sig_bytes)} bytes, "
-            f"expected {DILITHIUM2_SIGNATURE_BYTES}."
+            f"expected {FALCON_SIGNATURE_BYTES}."
         )
 
     # 5. Parse payload JSON
@@ -398,4 +398,4 @@ def estimate_packed_size(num_passengers: int, ticket_type: str = TYPE_RESERVED) 
         pax_size = num_passengers * per_pax_with_hash
 
     json_size = base_overhead + pax_size
-    return LENGTH_FIELD_BYTES + json_size + DILITHIUM2_SIGNATURE_BYTES
+    return LENGTH_FIELD_BYTES + json_size + FALCON_SIGNATURE_BYTES

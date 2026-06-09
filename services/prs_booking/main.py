@@ -29,8 +29,15 @@ GET  /health                — Liveness check
 DataMatrix generation
 ---------------------
 pylibdmtx is used for both generation (encode) and decoding (decode).
-The barcode encodes raw binary bytes directly — no base64 layer at the
-barcode level. This keeps the barcode as compact as possible.
+The barcode encodes raw binary bytes directly using the Base256 encoding
+scheme, which is the correct scheme for arbitrary binary data. ASCII
+encoding (the pylibdmtx default) expands binary bytes and would cause
+capacity errors. Base256 encodes each byte as-is, maximising capacity.
+
+Falcon-padded-512 (FIPS 206) signatures are 666 bytes. A 6-passenger
+ticket payload is approximately 712 bytes. Total packed size including
+the 2-byte length header is approximately 1380 bytes, which fits within
+the DataMatrix ECC200 144×144 binary capacity of 1558 bytes.
 
 pylibdmtx.encode() returns a named tuple with fields:
     .pixels  : bytes  (raw RGB pixel data)
@@ -314,7 +321,13 @@ def _generate_datamatrix_png(packed_bytes: bytes, output_path: str) -> None:
     """
     Generate a DataMatrix ECC200 barcode PNG from raw packed bytes.
 
-    The barcode encodes the raw binary content directly (no base64 layer).
+    The barcode encodes the raw binary content using the Base256 encoding
+    scheme, which is required for arbitrary binary data. The default ASCII
+    scheme would expand binary bytes and exceed the barcode capacity.
+
+    Capacity (144×144, Base256): 1558 bytes.
+    Falcon-padded-512 packed payload (6 passengers): ~1380 bytes. Fits.
+
     The output image is scaled up to DM_MIN_SIZE_PX minimum dimension so
     it is legible on screen and scannable by phone cameras.
 
@@ -326,7 +339,7 @@ def _generate_datamatrix_png(packed_bytes: bytes, output_path: str) -> None:
         RuntimeError : if pylibdmtx fails to encode the data.
     """
     try:
-        encoded = dm_encode(packed_bytes, size="144x144")
+        encoded = dm_encode(packed_bytes, size="144x144", scheme="Base256")
     except Exception as exc:
         raise RuntimeError(
             f"DataMatrix encoding failed ({len(packed_bytes)} bytes): {exc}"
@@ -566,7 +579,6 @@ async def book_ticket(body: BookRequest, request: Request) -> BookResponse:
     db_gen = get_db()
     db: Session = next(db_gen)
     try:
-        # Check for duplicate PNR (should not happen with random generation, but be safe)
         existing = db.query(IssuedTicket).filter(IssuedTicket.pnr == ticket_pnr).first()
         if existing:
             log.warning("PNR collision detected: %s — this is extremely unlikely", ticket_pnr)
@@ -661,17 +673,13 @@ async def ticket_page(pnr: str, request: Request):
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket with PNR {pnr!r} not found")
 
-    # Build the QR URL using the request's Host header so it works on LAN
     _, qr_url = _build_ticket_url(request, pnr)
 
-    # Parse passenger names for display
     passenger_name_list = [n.strip() for n in ticket.passenger_names.split(",") if n.strip()]
 
-    # Format issued_at timestamp for display
     issued_dt = datetime.fromtimestamp(ticket.issued_at, tz=timezone.utc)
     issued_at_str = issued_dt.strftime("%d %b %Y %H:%M UTC")
 
-    # Ticket type display string
     type_display = {
         "R": "Reserved",
         "U": "Unreserved",
@@ -693,7 +701,6 @@ async def ticket_page(pnr: str, request: Request):
             "passengers":      passenger_name_list,
             "issued_at":       issued_at_str,
             "qr_url":          qr_url,
-            # Do NOT expose uuid or jwt_string/barcode_b64 in the template
         },
     )
 
@@ -732,7 +739,6 @@ async def ticket_barcode(pnr: str) -> FileResponse:
     dm_path     = os.path.join(settings.TICKETS_DIR, dm_filename)
 
     if not os.path.exists(dm_path):
-        # Barcode file missing — regenerate from stored barcode_b64
         log.warning("DataMatrix PNG missing for pnr=%s, regenerating.", pnr)
         try:
             packed_bytes = base64.b64decode(ticket.jwt_string)
@@ -777,7 +783,7 @@ async def ticket_raw(pnr: str) -> dict:
     return {
         "pnr":             ticket.pnr,
         "uuid":            ticket.uuid,
-        "barcode_b64":     ticket.jwt_string,   # stored as barcode_b64 in jwt_string column
+        "barcode_b64":     ticket.jwt_string,
         "train":           ticket.train,
         "from_stn":        ticket.from_stn,
         "to_stn":          ticket.to_stn,
