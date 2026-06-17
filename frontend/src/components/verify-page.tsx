@@ -3,8 +3,8 @@ import {
   ShieldCheck, ShieldX, ScanLine, Clock, CalendarClock, Train, CalendarX, SearchX, Copy,
   Check, X as XIcon, Minus, Loader2, Upload,
 } from "lucide-react";
-import type { RawTicket, VerifyResult, VerifyResultCode } from "../types";
-import { api, ApiError } from "../lib/api";
+import type { RawTicketResponse, VerifyResult, VerifyResultCode } from "../types";
+import { api, ApiError, getTicketRaw } from "../lib/api";
 import { useToast } from "./toast";
 import { ServiceBanner } from "./service-banner";
 
@@ -43,7 +43,7 @@ export function VerifyPage() {
       let barcode_b64: string;
       let usePnr = pnr;
       if (mode === "pnr") {
-        const raw = await api.rawTicket<RawTicket>(pnr);
+        const raw = await getTicketRaw(pnr);
         barcode_b64 = raw.barcode_b64;
       } else {
         if (!file) throw new Error("Please upload a barcode PNG.");

@@ -158,7 +158,7 @@ function FragmentRow({ d, expanded, onToggle, events }: { d: DuplicateEntry; exp
             {copied ? <Check size={12} /> : <Copy size={12} />}
           </button>
         </td>
-        <td style={{ padding: "12px 16px" }}>{d.times_scanned}</td>
+        <td style={{ padding: "12px 16px" }}>{d.count}</td>
         <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>{d.first_seen}</td>
         <td style={{ padding: "12px 16px" }}><span className="badge badge-amber">DUPLICATE</span></td>
       </tr>

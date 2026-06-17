@@ -1,4 +1,5 @@
 import { SERVICES, SERVICE_META, type ServiceKey } from "../config";
+import type { RawTicketResponse } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -70,3 +71,7 @@ export const api = {
     }
   },
 };
+
+export async function getTicketRaw(pnr: string): Promise<RawTicketResponse> {
+  return api.rawTicket<RawTicketResponse>(pnr);
+}

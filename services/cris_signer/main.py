@@ -39,6 +39,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -154,6 +155,13 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:4173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -442,22 +450,13 @@ async def get_public_key(request: Request) -> PublicKeyResponse:
 
 @app.get(
     "/health",
-    response_model=HealthResponse,
     summary="Service liveness check",
 )
-async def health(request: Request) -> HealthResponse:
-    public_key_bytes: bytes = request.app.state.public_key_bytes
-    private_key_bytes: bytes = request.app.state.private_key_bytes
-    old_public_key_bytes: Optional[bytes] = request.app.state.old_public_key_bytes
-
-    return HealthResponse(
-        status="ok",
-        hsm_loaded=len(private_key_bytes) == FALCON_PRIVATE_KEY_BYTES,
-        algorithm="Falcon",
-        private_key_size_bytes=len(private_key_bytes),
-        public_key_fingerprint=get_public_key_fingerprint(public_key_bytes),
-        old_key_present=old_public_key_bytes is not None,
-    )
+async def health(request: Request) -> dict:
+    return {
+        "status": "ok",
+        "service": "cris_signing",
+    }
 
 
 @app.exception_handler(Exception)

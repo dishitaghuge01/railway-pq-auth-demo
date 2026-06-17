@@ -68,6 +68,7 @@ from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from PIL import Image
@@ -85,6 +86,7 @@ if _repo_root not in sys.path:
 from shared.config import settings
 from shared.database import get_db, init_db
 from shared.models import IssuedTicket
+from shared.payload import unpack_signed_payload
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -155,6 +157,13 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:4173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -765,6 +774,13 @@ async def ticket_raw(pnr: str) -> dict:
     """
     Returns the full ticket data including barcode_b64 (base64-encoded packed bytes).
     The CLI uses this to fetch the barcode for verification with the HHT service.
+    
+    Response format:
+    {
+      "pnr": string,
+      "barcode_b64": string,
+      "payload": object (decoded from the packed bytes)
+    }
     """
     db_gen = get_db()
     db: Session = next(db_gen)
@@ -780,18 +796,18 @@ async def ticket_raw(pnr: str) -> dict:
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket with PNR {pnr!r} not found")
 
+    # Decode the barcode to extract the payload
+    try:
+        packed_bytes = base64.b64decode(ticket.jwt_string)
+        payload_dict, _, _ = unpack_signed_payload(packed_bytes)
+    except Exception as exc:
+        log.error("Failed to decode payload for pnr=%s: %s", pnr, exc)
+        payload_dict = {}
+
     return {
-        "pnr":             ticket.pnr,
-        "uuid":            ticket.uuid,
-        "barcode_b64":     ticket.jwt_string,
-        "train":           ticket.train,
-        "from_stn":        ticket.from_stn,
-        "to_stn":          ticket.to_stn,
-        "ticket_class":    ticket.ticket_class,
-        "travel_date":     ticket.travel_date,
-        "ticket_type":     ticket.ticket_type,
-        "issued_at":       ticket.issued_at,
-        "passenger_names": ticket.passenger_names,
+        "pnr": ticket.pnr,
+        "barcode_b64": ticket.jwt_string,
+        "payload": payload_dict,
     }
 
 
@@ -842,12 +858,9 @@ async def list_tickets() -> dict:
     summary="Service liveness check",
 )
 async def health(request: Request) -> dict:
-    local_ip = getattr(request.app.state, "local_ip", "unknown")
     return {
-        "status":     "ok",
-        "service":    "prs_booking",
-        "local_ip":   local_ip,
-        "ticket_url": f"http://{local_ip}:{settings.PRS_PORT}/ticket/<pnr>",
+        "status": "ok",
+        "service": "prs_booking",
     }
 
 

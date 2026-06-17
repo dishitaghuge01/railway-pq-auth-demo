@@ -263,6 +263,34 @@ prs_booking.1  | Network: http://192.168.x.x:8000  ← use this on phone (same W
 
 ---
 
+## Running the Full Stack (Backend + Frontend)
+
+To run all four backend services together with the React frontend:
+
+```bash
+# 1. Start the backend services (in the repo root)
+honcho start
+
+# In a separate terminal:
+# 2. Install frontend dependencies
+cd frontend
+npm install
+
+# 3. Start the Vite development server
+npm run dev
+
+# 4. Open the frontend
+# Visit http://localhost:5173 in your browser
+```
+
+The frontend will automatically proxy API requests to the backend services:
+- `/api/prs` → http://localhost:8000
+- `/api/cris` → http://localhost:8001
+- `/api/audit` → http://localhost:8002
+- `/api/hht` → http://localhost:8003
+
+The four services should all report healthy (green status dots in the navbar) when both the backend and frontend are running.
+
 ## Requirements
 
 ```

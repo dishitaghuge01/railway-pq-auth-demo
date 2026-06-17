@@ -19,9 +19,8 @@ export function ChartPage() {
     setLoading(true);
     setBannerErr(null);
     try {
-      const r = await api.chart<ChartResponse | ChartPassenger[]>(train, date);
-      const passengers = Array.isArray(r) ? r : (r.passengers ?? []);
-      setChart({ train, date, passengers });
+      const r = await api.chart<ChartResponse>(train, date);
+      setChart(r);
     } catch (err) {
       setBannerErr(err);
       const msg = err instanceof ApiError ? `${err.status || "ERR"} — ${err.message}` : (err as Error).message;
@@ -36,20 +35,14 @@ export function ChartPage() {
     try {
       await api.clearChart(train, date);
       toast.push("success", `Chart cleared for ${train} on ${date}.`);
-      setChart({ train, date, passengers: [] });
+      setChart({ train, date, coaches: {} });
     } catch (err) {
       const msg = err instanceof ApiError ? `${err.status || "ERR"} — ${err.message}` : (err as Error).message;
       toast.push("error", msg);
     }
   };
 
-  const grouped = chart
-    ? chart.passengers.reduce<Record<string, ChartPassenger[]>>((m, p) => {
-        const k = p.coach ?? "—";
-        (m[k] ??= []).push(p);
-        return m;
-      }, {})
-    : {};
+  const grouped = chart?.coaches ?? {};
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto" }}>
@@ -79,7 +72,7 @@ export function ChartPage() {
 
       {chart && (
         <div style={{ marginTop: 20 }}>
-          {chart.passengers.length === 0 ? (
+          {Object.keys(grouped).length === 0 ? (
             <p style={{ color: "var(--text-muted)", fontSize: 14 }}>No passengers loaded for this train and date.</p>
           ) : (
             Object.entries(grouped).map(([coach, list]) => (

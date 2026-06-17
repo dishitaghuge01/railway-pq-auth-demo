@@ -6,7 +6,7 @@ import { BookPage } from "../components/book-page";
 import { VerifyPage } from "../components/verify-page";
 import { AuditPage } from "../components/audit-page";
 import { ChartPage } from "../components/chart-page";
-import type { BookResponse, RawTicket } from "../types";
+import type { BookResponse, RawTicketResponse } from "../types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const [page, setPage] = useState<PageKey>("book");
-  const [ticket, setTicket] = useState<{ book: BookResponse; raw: RawTicket } | null>(null);
+  const [ticket, setTicket] = useState<{ book: BookResponse; raw: RawTicketResponse } | null>(null);
 
   return (
     <ToastProvider>

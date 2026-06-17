@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Ticket, Send, Plus, Trash2, FileText, Copy, Check, Loader2, Download } from "lucide-react";
-import type { BookRequest, BookResponse, PassengerInput, RawTicket, TicketType } from "../types";
+import type { BookRequest, BookResponse, PassengerInput, RawTicketResponse, TicketType } from "../types";
 import { api, ApiError } from "../lib/api";
 import { useToast } from "./toast";
 import { ServiceBanner } from "./service-banner";
@@ -25,8 +25,8 @@ export function BookPage({
   ticket,
   setTicket,
 }: {
-  ticket: { book: BookResponse; raw: RawTicket } | null;
-  setTicket: (t: { book: BookResponse; raw: RawTicket } | null) => void;
+  ticket: { book: BookResponse; raw: RawTicketResponse } | null;
+  setTicket: (t: { book: BookResponse; raw: RawTicketResponse } | null) => void;
 }) {
   const toast = useToast();
   const [form, setForm] = useState<FormState>({
@@ -86,7 +86,7 @@ export function BookPage({
         }),
       };
       const book = await api.book<BookResponse>(payload);
-      const raw = await api.rawTicket<RawTicket>(book.pnr);
+      const raw = await api.rawTicket<RawTicketResponse>(book.pnr);
       setTicket({ book, raw });
       toast.push("success", `Ticket ${book.pnr} issued and quantum-signed.`);
     } catch (err) {
@@ -262,7 +262,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function TicketCard({ ticket, copied, onCopy }: { ticket: { book: BookResponse; raw: RawTicket }; copied: boolean; onCopy: () => void }) {
+function TicketCard({ ticket, copied, onCopy }: { ticket: { book: BookResponse; raw: RawTicketResponse }; copied: boolean; onCopy: () => void }) {
   const { raw, book } = ticket;
   const p = raw.payload;
   const isTatkal = p.type === "T";

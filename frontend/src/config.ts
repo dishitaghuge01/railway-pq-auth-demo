@@ -1,8 +1,8 @@
 export const SERVICES = {
-  prs: "http://localhost:8000",
-  cris: "http://localhost:8001",
-  audit: "http://localhost:8002",
-  hht: "http://localhost:8003",
+  prs: "/api/prs",
+  cris: "/api/cris",
+  audit: "/api/audit",
+  hht: "/api/hht",
 } as const;
 
 export type ServiceKey = keyof typeof SERVICES;
