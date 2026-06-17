@@ -681,4 +681,3 @@ This repo is a direct successor to [railway-auth-demo](https://github.com/dishit
 - [NIST FIPS 206](https://csrc.nist.gov/pubs/fips/206/final) — FN-DSA (Falcon) standard
 - [Open Quantum Safe / liboqs](https://github.com/open-quantum-safe/liboqs) — C library used for Falcon
 - [liboqs-python](https://github.com/open-quantum-safe/liboqs-python) — Python bindings
-- IEEE TENCON 2026 paper: *ArchIntel: Graph-Based Architectural Floor Plan Quality Assessment Using Space Syntax and LLM Integration*
