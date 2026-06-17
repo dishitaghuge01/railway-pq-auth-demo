@@ -263,3 +263,11 @@ function ChecklistRow({ row, index }: {
     </div>
   );
 }
+
+export function ResultBadge({ code }: { code: string }) {
+  const cls =
+    code === "VALID" ? "badge-green" :
+    code === "DUPLICATE" || code === "EXPIRED" || code === "NOT_YET_VALID" ? "badge-amber" :
+    "badge-red";
+  return <span className={`badge ${cls}`}>{code}</span>;
+}

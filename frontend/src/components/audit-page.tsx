@@ -13,6 +13,16 @@ const STAT_KEYS: { key: VerifyResultCode | "TOTAL"; label: string; cls: string }
   { key: "EXPIRED", label: "Expired", cls: "badge-amber" },
 ];
 
+const formatAuditTimestamp = (value: number) =>
+  new Date(value * 1000).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
 export function AuditPage() {
   const toast = useToast();
   const [stats, setStats] = useState<AuditStats | null>(null);
@@ -69,6 +79,17 @@ export function AuditPage() {
   const total = stats
     ? Object.values(stats).reduce((a, b) => a + (typeof b === "number" ? b : 0), 0)
     : 0;
+  const duplicateCount = dupes?.length ?? 0;
+
+  const formatAuditTimestamp = (value: number) =>
+    new Date(value * 1000).toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
 
   return (
     <div>
@@ -83,7 +104,11 @@ export function AuditPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginTop: 18 }}>
         {STAT_KEYS.map((k) => {
-          const value = k.key === "TOTAL" ? total : (stats?.[k.key] ?? 0);
+          const value = k.key === "TOTAL"
+            ? total
+            : k.key === "DUPLICATE"
+            ? duplicateCount
+            : (stats?.[k.key] ?? 0);
           return (
             <div key={k.key} className="card" style={{ padding: "20px 24px" }}>
               <div style={{ fontSize: 32, fontWeight: 700, color: "var(--text-primary)" }}>{value}</div>
@@ -159,12 +184,13 @@ function FragmentRow({ d, expanded, onToggle, events }: { d: DuplicateEntry; exp
           </button>
         </td>
         <td style={{ padding: "12px 16px" }}>{d.count}</td>
-        <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>{d.first_seen}</td>
+        <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>{formatAuditTimestamp(d.first_seen)}</td>
+        <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>{formatAuditTimestamp(d.last_seen)}</td>
         <td style={{ padding: "12px 16px" }}><span className="badge badge-amber">DUPLICATE</span></td>
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={4} style={{ padding: "0 16px 16px", background: "var(--bg)" }}>
+          <td colSpan={5} style={{ padding: "0 16px 16px", background: "var(--bg)" }}>
             <EventList events={events ?? []} compact />
           </td>
         </tr>
@@ -191,7 +217,7 @@ function EventList({ events, compact }: { events: AuditEvent[]; compact?: boolea
         <tbody>
           {events.map((e, i) => (
             <tr key={i} style={{ borderTop: "1px solid var(--border-c)" }}>
-              <td style={{ padding: "8px" }} className="mono">{e.timestamp}</td>
+              <td style={{ padding: "8px" }} className="mono">{formatAuditTimestamp(e.timestamp)}</td>
               <td style={{ padding: "8px" }} className="mono">{e.tte_id}</td>
               <td style={{ padding: "8px" }} className="mono">{e.train}</td>
               <td style={{ padding: "8px" }}><ResultBadge code={e.result} /></td>

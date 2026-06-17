@@ -118,6 +118,13 @@ export interface AuditEvent {
   uuid: string;
 }
 
+export interface AttackHistoryEntry {
+  attack: string;
+  pnr: string;
+  result: string;
+  timestamp: Date;
+}
+
 // ============================================================================
 // Chart Types
 // ============================================================================

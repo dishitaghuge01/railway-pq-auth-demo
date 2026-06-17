@@ -268,14 +268,14 @@ class VerifyResponse(BaseModel):
             "WRONG_TRAIN, WRONG_DATE, INVALID_PNR, or DUPLICATE."
         ),
     )
-    signature_valid: bool = Field(..., description="Whether the Falcon signature verified")
-    chart_match: bool = Field(..., description="Whether the UUID/berths were found in the local chart")
-    is_duplicate: bool = Field(..., description="Whether this ticket UUID was seen before")
-    key_used: str = Field(..., description="'current' or 'previous' — which embedded key verified the signature")
-    validity_window: str = Field(..., description="'active', 'expired', or 'not_yet_valid'")
-    train_match: bool = Field(..., description="Whether the payload train matches the expected train")
-    date_match: bool = Field(..., description="Whether the payload date matches today's date")
-    identity_check: str = Field(..., description="'passed', 'failed', or 'skipped'")
+    signature_valid: bool = Field(False, description="Whether the Falcon signature verified")
+    chart_match: bool = Field(False, description="Whether the UUID/berths were found in the local chart")
+    is_duplicate: bool = Field(False, description="Whether this ticket UUID was seen before")
+    key_used: str = Field("current", description="'current' or 'previous' — which embedded key verified the signature")
+    validity_window: str = Field("unknown", description="'active', 'expired', or 'not_yet_valid'")
+    train_match: bool = Field(False, description="Whether the payload train matches the expected train")
+    date_match: bool = Field(False, description="Whether the payload date matches today's date")
+    identity_check: str = Field("skipped", description="'passed', 'failed', or 'skipped'")
     payload: Optional[dict] = Field(None, description="Ticket payload (only if signature_valid)")
 
 
@@ -416,8 +416,8 @@ def _run_verification_pipeline(
     # ------------------------------------------------------------------
     try:
         payload_dict, raw_payload_bytes, raw_sig_bytes = unpack_signed_payload(packed_bytes)
-    except ValueError as exc:
-        log.warning("Binary unpack failed: %s", exc)
+    except Exception as exc:
+        log.warning("Binary unpack failed (returning FORGED): %s", exc)
         return {
             "_uuid": "unknown",
             "result": VerifyResult.FORGED,
@@ -439,18 +439,32 @@ def _run_verification_pipeline(
     # ------------------------------------------------------------------
     key_used: Optional[str] = None
 
-    if verify_signature(raw_payload_bytes, raw_sig_bytes, public_key_bytes):
-        key_used = "current"
-    elif (
-        old_public_key_bytes is not None
-        and verify_signature(raw_payload_bytes, raw_sig_bytes, old_public_key_bytes)
-    ):
-        key_used = "previous"
-    else:
-        log.warning(
-            "Signature verification failed (FORGED): uuid=%s train=%s",
-            ticket_uuid, payload_dict.get("train"),
-        )
+    try:
+        if verify_signature(raw_payload_bytes, raw_sig_bytes, public_key_bytes):
+            key_used = "current"
+        elif (
+            old_public_key_bytes is not None
+            and verify_signature(raw_payload_bytes, raw_sig_bytes, old_public_key_bytes)
+        ):
+            key_used = "previous"
+        else:
+            log.warning(
+                "Signature verification failed (FORGED): uuid=%s train=%s",
+                ticket_uuid, payload_dict.get("train"),
+            )
+            return {
+                "_uuid": ticket_uuid,
+                "result": VerifyResult.FORGED,
+                "ticket_details": None,
+                "passengers": None,
+                "signature_valid": False,
+                "chart_matched": None,
+                "is_duplicate": None,
+                "audit_logged": False,
+                "key_used": None,
+            }
+    except Exception as exc:
+        log.warning("Signature verification failed with exception (returning FORGED): %s", exc)
         return {
             "_uuid": ticket_uuid,
             "result": VerifyResult.FORGED,
@@ -741,9 +755,18 @@ async def verify_ticket(body: VerifyRequest, request: Request) -> VerifyResponse
     try:
         packed_bytes = base64.b64decode(body.barcode_b64)
     except Exception as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"barcode_b64 is not valid base64: {exc}",
+        log.warning(f"Barcode base64 decode failed (returning FORGED): {exc}")
+        return VerifyResponse(
+            result=VerifyResult.FORGED,
+            signature_valid=False,
+            chart_match=False,
+            is_duplicate=False,
+            key_used="current",
+            validity_window="unknown",
+            train_match=False,
+            date_match=False,
+            identity_check="skipped",
+            payload={},
         )
 
     # Determine request IP
@@ -770,6 +793,20 @@ async def verify_ticket(body: VerifyRequest, request: Request) -> VerifyResponse
             public_key_bytes,
             old_public_key_bytes,
             db,
+        )
+    except Exception as exc:
+        log.warning(f"Barcode parsing failed (returning FORGED): {exc}")
+        return VerifyResponse(
+            result=VerifyResult.FORGED,
+            signature_valid=False,
+            chart_match=False,
+            is_duplicate=False,
+            key_used="current",
+            validity_window="unknown",
+            train_match=False,
+            date_match=False,
+            identity_check="skipped",
+            payload={},
         )
     finally:
         try:
@@ -843,15 +880,15 @@ async def verify_ticket(body: VerifyRequest, request: Request) -> VerifyResponse
 
     return VerifyResponse(
         result=result_code,
-        signature_valid=pipeline_result["signature_valid"],
-        chart_match=pipeline_result.get("chart_matched", False),
-        is_duplicate=is_duplicate,
+        signature_valid=pipeline_result.get("signature_valid") or False,
+        chart_match=pipeline_result.get("chart_matched") or False,
+        is_duplicate=is_duplicate or False,
         key_used=pipeline_result.get("key_used") or "current",
-        validity_window=validity_window,
-        train_match=train_match,
-        date_match=date_match,
-        identity_check=identity_check,
-        payload=pipeline_result.get("ticket_details"),
+        validity_window=validity_window or "unknown",
+        train_match=train_match or False,
+        date_match=date_match or False,
+        identity_check=identity_check or "skipped",
+        payload=pipeline_result.get("ticket_details") or {},
     )
 
 

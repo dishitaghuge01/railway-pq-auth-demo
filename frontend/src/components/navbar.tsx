@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Swords } from "lucide-react";
 import { SERVICE_META, type ServiceKey } from "../config";
 import { api } from "../lib/api";
 
-export type PageKey = "book" | "verify" | "audit" | "chart";
+export type PageKey = "book" | "verify" | "audit" | "chart" | "attacks";
 
 const NAV: { key: PageKey; label: string }[] = [
   { key: "book", label: "Book" },
   { key: "verify", label: "Verify" },
   { key: "audit", label: "Audit" },
   { key: "chart", label: "Chart" },
+  { key: "attacks", label: "Attacks" },
 ];
 
 export function Navbar({
@@ -78,7 +79,7 @@ export function Navbar({
           <nav className="nav-desktop" style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {NAV.map((n) => (
               <NavLink key={n.key} active={active === n.key} onClick={() => pick(n.key)}>
-                {n.label}
+                {n.key === "attacks" ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Swords size={14} />{n.label}</span> : n.label}
               </NavLink>
             ))}
             <div style={{ display: "flex", gap: 6, marginLeft: 14, paddingLeft: 14, borderLeft: "1px solid var(--border-c)" }}>

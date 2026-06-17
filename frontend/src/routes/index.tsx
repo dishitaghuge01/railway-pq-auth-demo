@@ -6,6 +6,7 @@ import { BookPage } from "../components/book-page";
 import { VerifyPage } from "../components/verify-page";
 import { AuditPage } from "../components/audit-page";
 import { ChartPage } from "../components/chart-page";
+import { AttacksPage } from "../components/attacks-page";
 import type { BookResponse, RawTicketResponse } from "../types";
 
 export const Route = createFileRoute("/")({
@@ -33,6 +34,8 @@ function Index() {
           {page === "verify" && <VerifyPage />}
           {page === "audit" && <AuditPage />}
           {page === "chart" && <ChartPage />}
+          {page === "attacks" && <AttacksPage />}
+          {page === "attacks" && <AttacksPage />}
         </main>
       </div>
     </ToastProvider>
