@@ -2,7 +2,7 @@
 
 A post-quantum cryptographic authentication and anti-forgery framework for printed Indian Railway tickets, implemented as a Python microservices demo.
 
-This is the v2 successor to [railway-auth-demo](https://github.com/dishitaghuge01/railway-auth-demo), which used ECDSA P-256. This version replaces ECDSA with **Falcon-padded-512 (FIPS 206 / FN-DSA)**, a lattice-based post-quantum digital signature scheme standardised by NIST in 2024. It is designed to remain secure against both classical and quantum adversaries through the expected operational lifetime of the ticketing infrastructure.
+This is the v2 successor to [railway-auth-demo](https://github.com/dishitaghuge01/railway-auth-demo), which used ECDSA P-256. This version replaces ECDSA with **Falcon-padded-512 (FIPS 206 / FN-DSA)**, the NIST-selected submission underlying the forthcoming FIPS 206 (FN-DSA) standard, currently in public draft. It is designed to remain secure against both classical and quantum adversaries through the expected operational lifetime of the ticketing infrastructure.
 
 ---
 
