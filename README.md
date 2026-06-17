@@ -330,9 +330,9 @@ Example `demo_booking.json`:
   "from_stn": "CSMT",
   "to_stn": "NDLS",
   "ticket_class": "3A",
-  "travel_date": "2026-06-15",
+  "travel_date": "2026-06-11",
   "departure_time": "06:00",
-  "arrival_time": "10:00",
+  "arrival_time": "20:00",
   "passengers": [
     {
       "name": "Rajan Kumar",
