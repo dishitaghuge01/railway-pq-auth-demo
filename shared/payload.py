@@ -12,7 +12,7 @@ The v1 (ECDSA) implementation used a JWT-inspired text format:
 This worked because an ECDSA P-256 signature is 71–72 bytes, which after
 base64url encoding adds ~96 bytes to the QR payload — acceptable for a QR code.
 
-The Falcon signature is 2420 bytes. Base64url-encoding it produces ~3227
+The Falcon signature is 666 bytes. Base64url-encoding it produces ~3227
 bytes for the signature alone. The full JWT-style string would be ~3800 bytes,
 which exceeds the 3116-byte binary capacity of a maximum-size DataMatrix ECC200.
 
@@ -20,9 +20,9 @@ Instead, v2 uses a compact binary format:
 
     [ 2 bytes big-endian uint16 : payload_len ]
     [ payload_len bytes         : UTF-8 JSON  ]
-    [ 2420 bytes                : Falcon raw signature ]
+    [ 666 bytes                : Falcon raw signature ]
 
-Total for a 6-passenger ticket: 2 + ~570 + 2420 = ~2992 bytes.
+Total for a 6-passenger ticket: 2 + ~570 + 666 = ~1238 bytes.
 DataMatrix ECC200 max capacity: 3116 bytes.
 Headroom: ~124 bytes. Fits with margin.
 
@@ -211,7 +211,7 @@ def pack_signed_payload(payload_dict: dict, private_key_bytes: bytes) -> bytes:
     Wire format:
         Bytes 0–1           : big-endian uint16, length of the JSON payload
         Bytes 2 – 2+len-1   : UTF-8 encoded compact JSON of payload_dict
-        Bytes 2+len – end   : raw Falcon signature (2420 bytes)
+        Bytes 2+len – end   : raw Falcon signature (666 bytes)
 
     Args:
         payload_dict      : Dict as returned by build_payload().
@@ -270,13 +270,13 @@ def unpack_signed_payload(packed_bytes: bytes) -> tuple[dict, bytes, bytes]:
 
         payload_dict      : Parsed ticket payload as a Python dict.
         raw_payload_bytes : The original UTF-8 JSON bytes (not re-serialised).
-        raw_sig_bytes     : 2420-byte Falcon signature.
+        raw_sig_bytes     : 666-byte Falcon signature.
 
     Raises:
         ValueError : for any structural problem:
                      - packed_bytes too short to contain the length field
                      - declared payload_len would overrun the buffer
-                     - remaining bytes after payload are not 2420 bytes
+                     - remaining bytes after payload are not 666 bytes
                      - payload JSON is not valid UTF-8
                      - payload JSON is not a valid JSON object
     """

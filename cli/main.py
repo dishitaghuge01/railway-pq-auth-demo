@@ -18,6 +18,8 @@ Commands
   chart clear             Wipe chart at journey end
   clone                   DEMO ATTACK — clone a ticket (DataMatrix, same packed bytes)
   forge                   DEMO ATTACK — tamper with a payload field (binary format)
+  fabricate               DEMO ATTACK — build + sign a ticket with an attacker-owned key
+  impersonate             DEMO ATTACK — present a real ticket under a stolen/fake identity
 
 v1 → v2 changes in this file
 ------------------------------
@@ -45,7 +47,7 @@ import shutil
 import struct
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import typer
@@ -71,6 +73,11 @@ from shared.crypto_utils import (
 from shared.payload import (
     LENGTH_FIELD_BYTES,
     LENGTH_STRUCT_FORMAT,
+    TYPE_RESERVED,
+    build_payload,
+    new_pnr,
+    new_ticket_uuid,
+    pack_signed_payload,
     unpack_signed_payload,
 )
 
@@ -204,6 +211,64 @@ def _fetch_barcode_b64_for_pnr(pnr: str) -> str:
     return barcode_b64
 
 
+_PYLIBDMTX_PATCHED = False
+
+
+def _patch_pylibdmtx_nul_truncation_bug() -> None:
+    """
+    Monkeypatch pylibdmtx's decode() to fix a real upstream bug.
+
+    pylibdmtx.pylibdmtx._decode_region() calls:
+        string_at(msg.contents.output)
+    WITHOUT an explicit length argument. ctypes.string_at() with no length
+    falls back to a C-style strlen() scan and truncates at the first 0x00
+    byte it encounters — anywhere in the buffer, not just at the start.
+
+    This is not a hypothetical edge case for this system. The packed
+    payload always ends with a 666-byte Falcon signature, which is
+    effectively uniform random bytes. P(at least one 0x00 byte in 666
+    random bytes) ≈ 1 - (255/256)^666 ≈ 92.6%. So unpatched, decoding a
+    real ticket from its actual DataMatrix image — the only code path
+    that round-trips through real barcode pixels, rather than fetching
+    barcode_b64 directly over HTTP — silently corrupts the result in the
+    large majority of cases, returning truncated or empty bytes instead
+    of raising an error.
+
+    The fix: libdmtx itself already tracks the true decoded length in
+    msg.contents.outputIdx. Reading that and passing it explicitly to
+    string_at() returns the full, correct bytes regardless of embedded
+    NUL bytes. Applied once, lazily, the first time an image is decoded.
+    """
+    global _PYLIBDMTX_PATCHED
+    if _PYLIBDMTX_PATCHED:
+        return
+
+    import pylibdmtx.pylibdmtx as _dmtx_module
+    from ctypes import string_at
+    from pylibdmtx.wrapper import DmtxVector2, dmtxMatrix3VMultiplyBy
+
+    def _decode_region_fixed(decoder, region, corrections, shrink):
+        with _dmtx_module._decoded_matrix_region(decoder, region, corrections) as msg:
+            if not msg:
+                return None
+            p00 = DmtxVector2()
+            p11 = DmtxVector2(1.0, 1.0)
+            dmtxMatrix3VMultiplyBy(p00, region.contents.fit2raw)
+            dmtxMatrix3VMultiplyBy(p11, region.contents.fit2raw)
+            x0 = int((shrink * p00.X) + 0.5)
+            y0 = int((shrink * p00.Y) + 0.5)
+            x1 = int((shrink * p11.X) + 0.5)
+            y1 = int((shrink * p11.Y) + 0.5)
+            # THE FIX: explicit length from outputIdx, not strlen-style truncation.
+            data = string_at(msg.contents.output, msg.contents.outputIdx)
+            return _dmtx_module.Decoded(
+                data, _dmtx_module.Rect(x0, y0, x1 - x0, y1 - y0)
+            )
+
+    _dmtx_module._decode_region = _decode_region_fixed
+    _PYLIBDMTX_PATCHED = True
+
+
 def _decode_datamatrix_image(image_path: str) -> str:
     """
     Decode a DataMatrix barcode from a PNG image file using pylibdmtx.
@@ -224,6 +289,8 @@ def _decode_datamatrix_image(image_path: str) -> str:
             fg=typer.colors.RED,
         )
         raise typer.Exit(1)
+
+    _patch_pylibdmtx_nul_truncation_bug()
 
     if not os.path.exists(image_path):
         typer.secho(
@@ -275,7 +342,7 @@ def _generate_datamatrix_png(packed_bytes: bytes, output_path: str) -> None:
     from PIL import Image
 
     try:
-        encoded = dm_encode(packed_bytes, size="144x144")
+        encoded = dm_encode(packed_bytes, scheme="base256", size="144x144")
     except Exception as exc:
         typer.secho(
             f"  ✗ DataMatrix encode failed ({len(packed_bytes)} bytes): {exc}",
@@ -303,6 +370,42 @@ def _generate_datamatrix_png(packed_bytes: bytes, output_path: str) -> None:
     padded.paste(img, (border, border))
 
     padded.save(output_path, format="PNG")
+
+
+# ── Datetime helpers (fabricate) ─────────────────────────────────────────────────
+
+def _parse_datetime_unix_local(date_str: str, time_str: str) -> int:
+    """
+    Convert a YYYY-MM-DD date string and HH:MM time string to a UTC Unix timestamp.
+    Treats the input as IST (UTC+5:30), matching prs_booking/main.py's
+    _parse_datetime_unix. Duplicated here so the fabricate command can build a
+    payload without depending on the PRS service being reachable — an attacker
+    fabricating a ticket from public NTES schedule data has no PRS access either.
+    """
+    IST_OFFSET = timedelta(hours=5, minutes=30)
+    dt_naive = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+    dt_ist = dt_naive - IST_OFFSET
+    return int(dt_ist.replace(tzinfo=timezone.utc).timestamp())
+
+
+def _resolve_arrival_unix_local(travel_date: str, departure_time: str, arrival_time: str) -> int:
+    """
+    Compute arrival Unix timestamp, advancing to the next day if arrival_time
+    is earlier than departure_time (overnight journey). Mirrors
+    prs_booking/main.py's _resolve_arrival_unix.
+    """
+    dep_h, dep_m = (int(x) for x in departure_time.split(":"))
+    arr_h, arr_m = (int(x) for x in arrival_time.split(":"))
+
+    departure_minutes = dep_h * 60 + dep_m
+    arrival_minutes = arr_h * 60 + arr_m
+
+    arrival_date = travel_date
+    if arrival_minutes <= departure_minutes:
+        date_obj = datetime.strptime(travel_date, "%Y-%m-%d") + timedelta(days=1)
+        arrival_date = date_obj.strftime("%Y-%m-%d")
+
+    return _parse_datetime_unix_local(arrival_date, arrival_time)
 
 
 # ── Verify result printer ───────────────────────────────────────────────────────
@@ -796,7 +899,7 @@ def verify(
     body = {
         "barcode_b64":    barcode_b64,
         "tte_id":         tte,
-        "expected_train": train,
+        "train":          train,
         "aadhaar_inputs": aadhaar_inputs if aadhaar_inputs else None,
     }
     data = _http_post(f"{_svc(settings.HHT_SERVICE_URL)}/verify", body)
@@ -1098,7 +1201,7 @@ def forge(
 
     Binary forge process (v2 wire format):
       1. Fetch packed bytes (barcode_b64) from PRS
-      2. Parse:  [2-byte length][payload JSON][2420-byte signature]
+      2. Parse:  [2-byte length][payload JSON][666-byte signature]
       3. Decode payload JSON, modify the chosen field
       4. Re-encode modified payload JSON
       5. Repack: [2-byte new length][modified JSON][ORIGINAL signature]
@@ -1209,6 +1312,289 @@ def forge(
         "  no longer match what was signed by the CRIS HSM.\n"
         "  This is true even though the signature bytes are present and\n"
         "  structurally valid — the cryptographic binding is broken.",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+    typer.echo("")
+
+
+# ===========================================================================
+# 6.8  fabricate — DEMO ATTACK
+# ===========================================================================
+
+@app.command("fabricate")
+def fabricate(
+    train: str = typer.Option(
+        ..., "--train", help="Train number, e.g. 12051 (public NTES schedule data)."
+    ),
+    from_stn: str = typer.Option(
+        ..., "--from", help="Origin station code, e.g. CSMT."
+    ),
+    to_stn: str = typer.Option(
+        ..., "--to", help="Destination station code, e.g. NDLS."
+    ),
+    travel_date: str = typer.Option(
+        ..., "--date", help="Travel date, YYYY-MM-DD."
+    ),
+    departure_time: str = typer.Option(
+        ..., "--departure", help="Scheduled departure, HH:MM (24h, IST)."
+    ),
+    arrival_time: str = typer.Option(
+        ..., "--arrival", help="Scheduled arrival, HH:MM (24h, IST)."
+    ),
+    ticket_class: str = typer.Option(
+        "3A", "--class", help=f"Class code. One of: {TICKET_CLASSES}"
+    ),
+    berth: str = typer.Option(
+        "B2/99", "--berth", help="Berth string to claim, e.g. B2/99."
+    ),
+):
+    """
+    DEMO ATTACK: Fabricate a ticket from scratch — no real PNR involved.
+
+    Unlike clone (steals an existing barcode) and forge (tampers with an
+    existing payload), fabricate starts from nothing but publicly available
+    NTES schedule data. The attacker:
+
+      1. Generates their OWN Falcon-padded-512 keypair. This models a
+         cryptographically competent attacker — not someone who doesn't
+         understand the scheme.
+      2. Builds a complete, well-formed ticket payload using only public
+         schedule data plus an invented UUID, PNR, and berth.
+      3. Signs it with their OWN private key, producing a signature that
+         is genuinely, cryptographically VALID — just not under the CRIS
+         key.
+      4. Packs and encodes it into a real DataMatrix ECC200 barcode,
+         wire-format-identical to a genuine ticket.
+
+    This isolates exactly one question: does the system depend on
+    possession of the CRIS private key, or could a skilled attacker route
+    around it entirely? The HHT verifies against the CRIS public key
+    baked into the device at build time, not the attacker's, so the
+    signature check fails regardless of how well-formed everything else
+    is.
+    """
+    if ticket_class not in TICKET_CLASSES:
+        typer.secho(
+            f"  ✗ Invalid class '{ticket_class}'. Choose from: {TICKET_CLASSES}",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
+
+    typer.echo("")
+    typer.secho("  ╔══════════════════════════════════════╗", fg=typer.colors.RED)
+    typer.secho("  ║  DEMO ATTACK: TICKET FABRICATION     ║", fg=typer.colors.RED, bold=True)
+    typer.secho("  ╚══════════════════════════════════════╝", fg=typer.colors.RED)
+    typer.echo("")
+    typer.secho(
+        "  Simulates an attacker building a ticket from zero — no stolen\n"
+        "  barcode, no existing PNR, just public NTES schedule data and\n"
+        "  their own Falcon keypair. This is the strongest version of the\n"
+        "  fabrication attack: the attacker is cryptographically competent,\n"
+        "  they simply do not hold the CRIS HSM private key.",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+    typer.echo("")
+
+    # 1. Attacker generates their own Falcon keypair — not CRIS's
+    typer.echo("  [1/4] Attacker generates their own Falcon-padded-512 keypair...")
+    attacker_priv, attacker_pub = generate_keypair()
+    attacker_fp = get_public_key_fingerprint(attacker_pub)
+    _print_kv("Attacker public key fp", attacker_fp, typer.colors.YELLOW)
+    _print_kv("Attacker private key",   f"{len(attacker_priv)} bytes (held only by attacker)")
+    _print_kv("Attacker public key",    f"{len(attacker_pub)} bytes (NOT the CRIS key in the HHT)")
+
+    # 2. Build a fabricated payload from public schedule data only
+    typer.echo("\n  [2/4] Building payload from public NTES-style schedule data...")
+    try:
+        departure_unix = _parse_datetime_unix_local(travel_date, departure_time)
+        arrival_unix = _resolve_arrival_unix_local(travel_date, departure_time, arrival_time)
+    except ValueError as exc:
+        typer.secho(f"  ✗ Could not parse date/time: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    fake_uuid = new_ticket_uuid()
+    fake_pnr = new_pnr()
+    payload_dict = build_payload(
+        ticket_type=TYPE_RESERVED,
+        uuid=fake_uuid,
+        train=train,
+        from_stn=from_stn.upper(),
+        to_stn=to_stn.upper(),
+        ticket_class=ticket_class,
+        travel_date=travel_date,
+        departure_unix=departure_unix,
+        arrival_unix=arrival_unix,
+        passengers=[{"berth": berth, "aadhaar": None, "dob": None}],
+    )
+
+    _print_kv("Fabricated UUID",  fake_uuid, typer.colors.YELLOW)
+    _print_kv("Fabricated PNR",   fake_pnr,  typer.colors.YELLOW)
+    _print_kv("Train",            train)
+    _print_kv("Route",            f"{from_stn.upper()} → {to_stn.upper()}")
+    _print_kv("Class / Berth",    f"{ticket_class} / {berth}")
+
+    # 3. Sign with the ATTACKER's own private key, not CRIS's
+    typer.echo("\n  [3/4] Signing with the attacker's OWN private key (not CRIS's)...")
+    try:
+        fabricated_packed_bytes = pack_signed_payload(payload_dict, attacker_priv)
+    except Exception as exc:
+        typer.secho(f"  ✗ Signing/packing failed: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    _print_kv(
+        "Signature",
+        f"{FALCON_SIGNATURE_BYTES} bytes — cryptographically VALID, but under the attacker's key",
+        typer.colors.YELLOW,
+    )
+    _print_kv("Packed size", f"{len(fabricated_packed_bytes)} bytes")
+
+    # 4. Encode into a real DataMatrix barcode — wire-format identical to a genuine ticket
+    typer.echo("\n  [4/4] Encoding fabricated ticket into DataMatrix ECC200...")
+    os.makedirs(settings.TICKETS_DIR, exist_ok=True)
+    fabricated_path = os.path.join(settings.TICKETS_DIR, f"FABRICATED_{fake_pnr}_dm.png")
+    _generate_datamatrix_png(fabricated_packed_bytes, fabricated_path)
+
+    typer.echo("")
+    typer.secho(
+        "  ✓ Fabricated ticket created. No real booking exists for this PNR/UUID.",
+        fg=typer.colors.RED, bold=True,
+    )
+    _print_kv("Fabricated DM saved", fabricated_path, typer.colors.YELLOW)
+    typer.echo("")
+    typer.secho("  What to do next:", fg=typer.colors.BRIGHT_WHITE, bold=True)
+    typer.echo(
+        f"\n  Verify the fabricated ticket:\n"
+        f"    python -m cli verify --image {fabricated_path} --tte TTE-001 --train {train}\n"
+    )
+    typer.secho(
+        "  Expected result: FORGED\n"
+        "  The signature is a perfectly valid Falcon signature — just not\n"
+        "  one the CRIS public key recognises. Verification fails against\n"
+        "  both the current and previous CRIS keys, so the ticket is\n"
+        "  rejected before any chart, train, or date check even runs. This\n"
+        "  holds no matter how cryptographically skilled the attacker is —\n"
+        "  fabrication requires the CRIS private key itself, which never\n"
+        "  leaves the HSM.",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+    typer.echo("")
+
+
+# ===========================================================================
+# 6.9  impersonate — DEMO ATTACK
+# ===========================================================================
+
+@app.command("impersonate")
+def impersonate(
+    pnr: str = typer.Option(
+        ..., "--pnr", "-p",
+        help="PNR of a real, validly issued ticket the attacker has obtained.",
+    ),
+    aadhaar: str = typer.Option(
+        ..., "--aadhaar",
+        help="Attacker's OWN Aadhaar number — NOT the real passenger's.",
+    ),
+    dob: str = typer.Option(
+        ..., "--dob",
+        help="Attacker's OWN date of birth, YYYY-MM-DD — NOT the real passenger's.",
+    ),
+    tte: str = typer.Option(
+        "TTE-IMPERSONATE-01", "--tte", help="TTE ID for this verification attempt.",
+    ),
+):
+    """
+    DEMO ATTACK: Impersonation using a genuinely valid ticket.
+
+    Simulates an attacker who has obtained someone else's real, validly
+    signed physical ticket — lost, stolen, or photographed — and tries to
+    travel on it under their own identity instead of the ticketed
+    passenger's.
+
+    This is deliberately NOT the same attack as clone or forge:
+      - Unlike clone, this is the FIRST scan of this physical barcode, so
+        the UUID duplicate check does not fire.
+      - Unlike forge, nothing in the payload is altered, so the Falcon
+        signature is genuinely, cryptographically valid.
+
+    The only thing that can catch this is the identity-binding layer: the
+    TTE collects Aadhaar + DOB from the person standing in front of them,
+    recomputes SHA256(aadhaar|dob), and compares it against the hash
+    embedded in the payload at issuance. Since the attacker is not the
+    ticketed passenger, the hashes do not match.
+
+    Requires a ticket booked with --aadhaar (or Tatkal, where it's
+    mandatory) — a ticket with no identity hash has nothing for this
+    check to catch.
+    """
+    typer.echo("")
+    typer.secho("  ╔══════════════════════════════════════╗", fg=typer.colors.RED)
+    typer.secho("  ║  DEMO ATTACK: IMPERSONATION          ║", fg=typer.colors.RED, bold=True)
+    typer.secho("  ╚══════════════════════════════════════╝", fg=typer.colors.RED)
+    typer.echo("")
+    typer.secho(
+        "  Simulates an attacker presenting a real, validly signed ticket\n"
+        "  that is not theirs — found, stolen, or photographed — and\n"
+        "  boarding under their own identity instead of the ticketed\n"
+        "  passenger's.",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+    typer.echo("")
+
+    # Fetch the real, valid barcode for this PNR — the attacker's stolen ticket
+    typer.echo(f"  Fetching barcode for PNR {pnr} (the ticket the attacker is holding)...")
+    barcode_b64 = _fetch_barcode_b64_for_pnr(pnr)
+
+    try:
+        packed_bytes = base64.b64decode(barcode_b64)
+        payload_dict, _, _ = unpack_signed_payload(packed_bytes)
+    except Exception as exc:
+        typer.secho(f"  ✗ Failed to unpack barcode: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    pax_list = payload_dict.get("pax", [])
+    identity_bound_pax = [p for p in pax_list if p.get("id")]
+
+    if not identity_bound_pax:
+        typer.secho(
+            "  ✗ This ticket has no identity-bound passengers — no Aadhaar\n"
+            "    hash was provided at booking, so there is nothing for the\n"
+            "    identity check to catch. Book with --aadhaar at booking\n"
+            "    time (or use a Tatkal ticket, where it's mandatory) and\n"
+            "    try again.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
+
+    target_berth = identity_bound_pax[0].get("b", "—")
+    masked_aadhaar = f"***{aadhaar[-4:]}" if len(aadhaar) >= 4 else aadhaar
+
+    typer.secho(
+        "  ✓ Barcode fetched. Signature is genuinely VALID — not forged, not cloned.",
+        fg=typer.colors.YELLOW,
+    )
+    _print_kv("UUID",                 payload_dict.get("uuid",  "—"), typer.colors.YELLOW)
+    _print_kv("Train",                payload_dict.get("train", "—"))
+    _print_kv("Real passenger berth", target_berth)
+    _print_kv("Attacker presents as", f"Aadhaar {masked_aadhaar}, DOB {dob}", typer.colors.RED)
+
+    # Submit to HHT using the ATTACKER's identity, not the real passenger's
+    typer.echo("\n  Verifying with HHT service, using the attacker's own identity...")
+    aadhaar_inputs = [{"berth": target_berth, "aadhaar": aadhaar, "dob": dob}]
+    body = {
+        "barcode_b64":    barcode_b64,
+        "tte_id":         tte,
+        "train":          payload_dict.get("train"),
+        "aadhaar_inputs": aadhaar_inputs,
+    }
+    data = _http_post(f"{_svc(settings.HHT_SERVICE_URL)}/verify", body)
+    _print_verify_result(data)
+
+    typer.secho(
+        "  Expected: Falcon Signature VALID, Chart Match MATCHED, Duplicate NO,\n"
+        "  but Identity: FAILED for the impersonated passenger. Signature and\n"
+        "  UUID checks pass because this genuinely is a real, unused ticket —\n"
+        "  the attack is caught only by the identity hash comparison, not by\n"
+        "  anything at the barcode/signature level.",
         fg=typer.colors.BRIGHT_BLACK,
     )
     typer.echo("")

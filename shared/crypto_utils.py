@@ -159,7 +159,7 @@ def sign_payload(payload_bytes: bytes, private_key_bytes: bytes) -> bytes:
         private_key_bytes: 2528-byte Falcon private key.
 
     Returns:
-        2420-byte raw Falcon signature.
+        666-byte raw Falcon signature.
 
     Raises:
         ValueError : if private_key_bytes is the wrong length.
@@ -202,7 +202,7 @@ def verify_signature(
 
     Args:
         payload_bytes   : The raw bytes that were originally signed.
-        sig_bytes       : 2420-byte Falcon signature to verify.
+        sig_bytes       : 666-byte Falcon signature to verify.
         public_key_bytes: 1312-byte Falcon public key.
 
     Returns:

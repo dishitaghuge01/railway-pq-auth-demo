@@ -45,12 +45,12 @@ The original proposal specified CRYSTALS-Dilithium (ML-DSA-44, FIPS 204) as the 
 | | Size |
 |---|---|
 | ML-DSA-44 signature | 2420 bytes |
-| DataMatrix ECC200 144×144 binary capacity (Base256 scheme) | 1558 bytes |
+| DataMatrix ECC200 144×144 binary capacity (Base256 scheme) | 1556 bytes |
 | ML-DSA-44 signature alone | **exceeds barcode capacity** |
 
-The 3116-byte figure cited in the original proposal was the *ASCII text character* capacity of DataMatrix 144×144 — not the *binary byte* capacity. For raw binary data (which a cryptographic signature is), the correct figure is 1558 bytes. An ML-DSA-44 signature of 2420 bytes is larger than the entire barcode, so the offline-first signed barcode architecture is not achievable with that algorithm regardless of compression or encoding strategy.
+The 3116-byte figure cited in the original proposal was the *ASCII text character* capacity of DataMatrix 144×144 — not the *binary byte* capacity. For raw binary data (which a cryptographic signature is), the correct figure is 1556 bytes. An ML-DSA-44 signature of 2420 bytes is larger than the entire barcode, so the offline-first signed barcode architecture is not achievable with that algorithm regardless of compression or encoding strategy.
 
-Falcon-padded-512 (FIPS 206, FN-DSA security level 1) solves this directly. Its signatures are fixed at **666 bytes** in our liboqs 0.15.0 build. A 6-passenger ticket packs to approximately 1380 bytes, which fits within the 1558-byte capacity with 178 bytes of headroom.
+Falcon-padded-512 (FIPS 206, FN-DSA security level 1) solves this directly. Its signatures are fixed at **666 bytes** in our liboqs 0.15.0 build. A 6-passenger ticket packs to approximately 1380 bytes, which fits within the 1556-byte capacity with 178 bytes of headroom.
 
 | Algorithm | Signature | Fits in DataMatrix 144×144? |
 |---|---|---|
@@ -528,7 +528,7 @@ python tests/test_shared.py
 - `verify_signature` never raises for any garbage input
 - Identity hash pipe separator prevents collision
 - `pack → unpack` roundtrip preserves payload dict exactly
-- Packed size for 6-passenger ticket fits within DataMatrix capacity (< 1558 bytes)
+- Packed size for 6-passenger ticket fits within DataMatrix capacity (< 1556 bytes)
 - Wire format structure is correct
 - `unpack_signed_payload` rejects truncated and empty input
 

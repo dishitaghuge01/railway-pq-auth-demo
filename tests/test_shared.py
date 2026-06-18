@@ -104,7 +104,7 @@ def test_generate_keypair_sizes():
 
 
 def test_sign_returns_correct_size():
-    """sign_payload() returns exactly 2420 bytes."""
+    """sign_payload() returns exactly 666 bytes."""
     priv, pub = generate_keypair()
     sig = sign_payload(SAMPLE_PAYLOAD_BYTES, priv)
     assert len(sig) == FALCON_SIGNATURE_BYTES, (
