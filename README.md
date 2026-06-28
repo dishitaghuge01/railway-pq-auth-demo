@@ -2,13 +2,15 @@
 
 A post-quantum cryptographic authentication and anti-forgery framework for printed Indian Railway tickets, implemented as a Python microservices demo.
 
-This is the v2 successor to [railway-auth-demo](https://github.com/dishitaghuge01/railway-auth-demo), which used ECDSA P-256. This version replaces ECDSA with **Falcon-padded-512 (FIPS 206 / FN-DSA)**, the NIST-selected submission underlying the forthcoming FIPS 206 (FN-DSA) standard, currently in public draft. It is designed to remain secure against both classical and quantum adversaries through the expected operational lifetime of the ticketing infrastructure.
+This is the v2 successor to [railway-auth-demo](https://github.com/dishitaghuge01/railway-auth-demo), which used ECDSA P-256. This version replaces ECDSA with **Falcon-padded-512**, the NIST-selected submission underlying the forthcoming **FIPS 206 (FN-DSA)** standard, currently in public draft (Initial Public Draft submitted August 2025; final standard expected late 2026 or early 2027). It is designed to remain secure against both classical and quantum adversaries through the expected operational lifetime of the ticketing infrastructure.
 
 ---
 
 ## The Problem
 
-Indian Railways issues approximately 12 million tickets every day. The QR codes printed on those tickets encode plain text with no digital signature. Anyone with a QR generator and a printer can produce a ticket that is visually and electronically indistinguishable from a genuine one. A TTE doing a manual check has no device-assisted way to verify that the ticket in front of them was actually issued by Indian Railways rather than fabricated or cloned.
+Indian Railways carries approximately **20 million originating passengers per day** (Economic Survey 2025-26, ~741 crore passengers/year). The QR codes printed on most tickets encode plain text with no digital signature. Anyone with a QR generator and a printer can produce a ticket that is visually and electronically indistinguishable from a genuine one. A TTE doing a manual check has no device-assisted way to verify that the ticket in front of them was actually issued by Indian Railways rather than fabricated or cloned.
+
+This is not a hypothetical threat. In December 2025, Indian Railways enforcement teams detected AI-edited tickets in active use — a single unreserved ticket on the Jaipur route was digitally altered to display seven passenger names, and a subsequent enforcement drive in the Jammu Division uncovered four more AI-generated fake UTS tickets.
 
 Specific attacks this system addresses:
 
@@ -25,14 +27,14 @@ Every ticket is cryptographically signed at the point of issuance using a privat
 
 Security layers from the proposal:
 
-| Layer | Mechanism | Offline? |
-|---|---|---|
-| Signature verification | Falcon-padded-512 (FIPS 206) | ✓ Yes |
-| Validity window | `vf` / `vu` Unix timestamps in payload | ✓ Yes |
-| Train and date match | Payload fields vs TTE session | ✓ Yes |
-| Chart lookup | Pre-downloaded SQLite passenger manifest | ✓ Yes |
-| Identity binding | SHA256(Aadhaar \| DOB) hash in payload | ✓ Yes |
-| Duplicate detection | UUID audit log on CRIS server | Network required |
+| Layer                  | Mechanism                                | Offline?         |
+| ---------------------- | ----------------------------------------- | ---------------- |
+| Signature verification | Falcon-padded-512 (draft FIPS 206)        | ✓ Yes            |
+| Validity window        | `vf` / `vu` Unix timestamps in payload    | ✓ Yes            |
+| Train and date match   | Payload fields vs TTE session             | ✓ Yes            |
+| Chart lookup           | Pre-downloaded SQLite passenger manifest  | ✓ Yes            |
+| Identity binding       | SHA256(Aadhaar \| DOB) hash in payload    | ✓ Yes            |
+| Duplicate detection    | UUID audit log on CRIS server             | Network required |
 
 ---
 
@@ -42,23 +44,25 @@ The original proposal specified CRYSTALS-Dilithium (ML-DSA-44, FIPS 204) as the 
 
 **The numbers:**
 
-| | Size |
-|---|---|
-| ML-DSA-44 signature | 2420 bytes |
-| DataMatrix ECC200 144×144 binary capacity (Base256 scheme) | 1556 bytes |
-| ML-DSA-44 signature alone | **exceeds barcode capacity** |
+|                                                              | Size                         |
+| ------------------------------------------------------------ | ----------------------------- |
+| ML-DSA-44 signature                                          | 2420 bytes                   |
+| DataMatrix ECC200 144×144 binary capacity (Base256 scheme)   | 1556 bytes                   |
+| ML-DSA-44 signature alone                                    | **exceeds barcode capacity** |
 
-The 3116-byte figure cited in the original proposal was the *ASCII text character* capacity of DataMatrix 144×144 — not the *binary byte* capacity. For raw binary data (which a cryptographic signature is), the correct figure is 1556 bytes. An ML-DSA-44 signature of 2420 bytes is larger than the entire barcode, so the offline-first signed barcode architecture is not achievable with that algorithm regardless of compression or encoding strategy.
+The 3116-byte figure cited in the original proposal was the *ASCII text character* capacity of DataMatrix 144×144 — not the *binary byte* capacity. For raw binary data (which a cryptographic signature is), the correct figure, measured by binary search using libdmtx 0.7.7, is **1556 bytes**. An ML-DSA-44 signature of 2420 bytes is larger than the entire barcode, so the offline-first signed barcode architecture is not achievable with that algorithm regardless of compression or encoding strategy.
 
-Falcon-padded-512 (FIPS 206, FN-DSA security level 1) solves this directly. Its signatures are fixed at **666 bytes** in our liboqs 0.15.0 build. A 6-passenger ticket packs to approximately 1380 bytes, which fits within the 1556-byte capacity with 178 bytes of headroom.
+Falcon-padded-512 solves this directly. Its signatures are fixed at **666 bytes**. A 6-passenger ticket (the practical ceiling, matching Indian Railways' own 6-passenger-per-booking limit) packs to **1374 bytes**, which fits within the 1556-byte capacity with **182 bytes of headroom**. The architecture's hard mathematical ceiling is actually 8 passengers (85n ≤ 692 → n ≤ 8.14) — two full passenger-slots above what Indian Railways' own booking system ever requires.
 
-| Algorithm | Signature | Fits in DataMatrix 144×144? |
-|---|---|---|
-| ECDSA P-256 (v1) | 64–72 bytes | ✓ Yes (QR code) |
-| ML-DSA-44 / Dilithium2 | 2420 bytes | ✗ No |
-| Falcon-padded-512 | 666 bytes (fixed) | ✓ Yes |
+| Algorithm              | Signature         | Fits in DataMatrix 144×144? |
+| ----------------------- | ----------------- | ----------------------------- |
+| ECDSA P-256 (v1)        | 64–72 bytes       | ✓ Yes (QR code)               |
+| ML-DSA-44 / Dilithium2  | 2420 bytes        | ✗ No                          |
+| Falcon-padded-512       | 666 bytes (fixed) | ✓ Yes                         |
 
-Both ML-DSA-44 and Falcon-padded-512 are NIST-standardised post-quantum schemes providing 128-bit post-quantum security. The switch is algorithm-only — key infrastructure, verification pipeline, physical security layers, and all operational procedures are identical.
+Both ML-DSA-44 and Falcon-padded-512 target NIST Security Level 1. The switch is algorithm-only — key infrastructure, verification pipeline, physical security layers, and all operational procedures are identical.
+
+**A note on hardness assumptions:** Falcon's security rests on NTRU lattice problems, which are well-studied but have received less cumulative cryptanalytic scrutiny than the Module-LWE/Module-SIS assumptions underlying ML-DSA. This is part of why NIST designated ML-DSA as the primary signature standard and reserved FN-DSA for use cases — like this one — where signature size is the binding constraint rather than assumption maturity.
 
 ---
 
@@ -84,12 +88,12 @@ Four services run simultaneously. Each mirrors a real component of the Indian Ra
 └─────────────────────────────────────────────────────────────┘
 ```
 
-| Service | Port | Mirrors | Responsibility |
-|---|---|---|---|
-| PRS Booking Service | 8000 | IRCTC / PRS counter | Accept bookings, call CRIS signer, generate DataMatrix barcode, serve ticket page |
-| CRIS Signing Service | 8001 | CRIS HSM microservice | Sign payload with Falcon-padded-512. Only service that holds the private key. |
-| Audit Server | 8002 | CRIS audit server | Log verifications, detect duplicate UUIDs |
-| HHT Service | 8003 | TTE Hand Held Terminal | Verify ticket barcode, check chart, return structured result |
+| Service              | Port | Mirrors                | Responsibility                                                                    |
+| --------------------- | ---- | ------------------------ | ------------------------------------------------------------------------------------ |
+| PRS Booking Service   | 8000 | IRCTC / PRS counter      | Accept bookings, call CRIS signer, generate DataMatrix barcode, serve ticket page    |
+| CRIS Signing Service  | 8001 | CRIS HSM microservice    | Sign payload with Falcon-padded-512. Only service that holds the private key.        |
+| Audit Server          | 8002 | CRIS audit server        | Log verifications, detect duplicate UUIDs                                            |
+| HHT Service           | 8003 | TTE Hand Held Terminal   | Verify ticket barcode, check chart, return structured result                         |
 
 ### Data flow — booking
 
@@ -169,18 +173,20 @@ The 2-byte big-endian length prefix allows the parser to slice the variable-leng
 }
 ```
 
-| Field | Description |
-|---|---|
-| `v` | Payload version (always 1) |
-| `type` | `R` reserved, `U` unreserved, `T` Tatkal |
-| `uuid` | UUID4 — canonical ticket identifier for audit deduplication |
-| `vf` | Valid-from Unix timestamp (2h before departure for reserved) |
-| `vu` | Valid-until Unix timestamp (4h after arrival for reserved) |
-| `iat` | Issued-at Unix timestamp |
-| `pax[].b` | Berth string e.g. `"B2/14"` (null for unreserved) |
-| `pax[].id` | `SHA256(aadhaar \| dob)` hex string, or null if not provided |
+| Field      | Description                                                    |
+| ----------- | ---------------------------------------------------------------- |
+| `v`         | Payload version (always 1)                                      |
+| `type`      | `R` reserved, `U` unreserved, `T` Tatkal                        |
+| `uuid`      | UUID4 — canonical ticket identifier for audit deduplication      |
+| `vf`        | Valid-from Unix timestamp (2h before departure for reserved)     |
+| `vu`        | Valid-until Unix timestamp (4h after arrival for reserved)       |
+| `iat`       | Issued-at Unix timestamp                                        |
+| `pax[].b`   | Berth string e.g. `"B2/14"` (null for unreserved)                |
+| `pax[].id`  | `SHA256(aadhaar | dob)` hex string, or null if not provided      |
 
 The `id` field uses a pipe separator: `SHA256(aadhaar + "|" + dob)`. Without it, Aadhaar `"123456"` + DOB `"789"` would hash identically to Aadhaar `"1234567"` + DOB `"89"`. The payload is not encrypted — the security guarantee is integrity (the signature proves the data was issued by CRIS and has not been tampered with), not confidentiality. All fields except the Aadhaar hash are already printed on the physical ticket.
+
+**Note on key rotation and advance booking:** keys rotate every 120 days with a grace period during which the previous public key is still accepted (see Key Generation below). Indian Railways' Advance Reservation Period caps booking at 60 days before travel (reduced from 120 days, effective November 1, 2024), so no ticket can ever be issued under a signing key that would fall outside the rotation-plus-grace-period window before its own validity window expires — the rotation period comfortably dominates the maximum possible advance-booking horizon, eliminating this edge case by construction.
 
 ---
 
@@ -189,23 +195,26 @@ The `id` field uses a pipe separator: `SHA256(aadhaar + "|" + dob)`. Without it,
 ### System dependencies
 
 **Arch Linux:**
-```bash
+
+```
 sudo pacman -S libdmtx
 ```
 
 **Ubuntu / Debian:**
-```bash
+
+```
 sudo apt install libdmtx-dev libdmtx0b
 ```
 
 **macOS:**
-```bash
+
+```
 brew install libdmtx
 ```
 
 liboqs C library (required by liboqs-python):
 
-```bash
+```
 # Ubuntu / Debian
 sudo apt install cmake ninja-build libssl-dev
 
@@ -231,7 +240,7 @@ Python 3.11 or later. The project uses Python 3.14 in development.
 
 ## Setup
 
-```bash
+```
 # 1. Clone the repo
 git clone https://github.com/dishitaghuge01/railway-pq-auth-demo.git
 cd railway-pq-auth-demo
@@ -267,7 +276,7 @@ prs_booking.1  | Network: http://192.168.x.x:8000  ← use this on phone (same W
 
 To run all four backend services together with the React frontend:
 
-```bash
+```
 # 1. Start the backend services (in the repo root)
 honcho start
 
@@ -284,12 +293,15 @@ npm run dev
 ```
 
 The frontend will automatically proxy API requests to the backend services:
-- `/api/prs` → http://localhost:8000
-- `/api/cris` → http://localhost:8001
-- `/api/audit` → http://localhost:8002
-- `/api/hht` → http://localhost:8003
+
+- `/api/prs` → `http://localhost:8000`
+- `/api/cris` → `http://localhost:8001`
+- `/api/audit` → `http://localhost:8002`
+- `/api/hht` → `http://localhost:8003`
 
 The four services should all report healthy (green status dots in the navbar) when both the backend and frontend are running.
+
+---
 
 ## Requirements
 
@@ -313,7 +325,7 @@ jinja2==3.1.4
 
 ## Key Generation
 
-```bash
+```
 # First-time setup
 python scripts/keygen.py
 
@@ -326,11 +338,11 @@ python scripts/keygen.py --rotate
 
 Key files:
 
-| File | Size | Description |
-|---|---|---|
-| `keys/private_key.bin` | 1281 bytes | **Gitignored.** Simulates HSM private key. Never committed. |
-| `keys/public_key.bin` | 897 bytes | Committed. Embedded in HHT, IRCTC, RailOne apps at build time. |
-| `keys/old_public_key.bin` | 897 bytes | Previous key, present only after a rotation. Grace period: 120 days. |
+| File                       | Size       | Description                                                            |
+| --------------------------- | ----------- | ------------------------------------------------------------------------ |
+| `keys/private_key.bin`      | 1281 bytes | **Gitignored.** Simulates HSM private key. Never committed.            |
+| `keys/public_key.bin`       | 897 bytes  | Committed. Embedded in HHT, IRCTC, RailOne apps at build time.          |
+| `keys/old_public_key.bin`   | 897 bytes  | Previous key, present only after a rotation. Grace period: 120 days.   |
 
 In production, the private key is generated inside the HSM and never exported. The `private_key.bin` file exists only to simulate that boundary in the demo.
 
@@ -342,7 +354,7 @@ All commands communicate with the services over HTTP. The services must be runni
 
 ### Book a ticket
 
-```bash
+```
 # Interactive mode
 python -m cli book
 
@@ -351,6 +363,7 @@ python -m cli book --json demo_booking.json
 ```
 
 Example `demo_booking.json`:
+
 ```json
 {
   "ticket_type": "R",
@@ -374,7 +387,7 @@ Example `demo_booking.json`:
 
 ### Verify a ticket
 
-```bash
+```
 # By PNR (fetches barcode from PRS service)
 python -m cli verify --pnr PNR8472910 --tte TTE-MUM-047 --train 12051
 
@@ -387,7 +400,7 @@ python -m cli verify --pnr PNR8472910 --tte TTE-MUM-047 --train 12051 --aadhaar
 
 ### Audit commands
 
-```bash
+```
 python -m cli audit stats                          # Aggregated counts
 python -m cli audit duplicates                     # All flagged duplicate UUIDs
 python -m cli audit log <uuid>                     # All events for one ticket
@@ -395,14 +408,14 @@ python -m cli audit log <uuid>                     # All events for one ticket
 
 ### Chart commands
 
-```bash
+```
 python -m cli chart show --train 12051 --date 2026-06-15
 python -m cli chart clear --train 12051 --date 2026-06-15
 ```
 
 ### Attack demo commands
 
-```bash
+```
 # Clone: copy a legitimate barcode to a new DataMatrix image
 python -m cli clone --pnr PNR8472910
 
@@ -418,7 +431,7 @@ This sequence demonstrates all security properties end-to-end.
 
 ### 1. Book a legitimate ticket
 
-```bash
+```
 python -m cli book --json demo_booking.json
 ```
 
@@ -426,11 +439,12 @@ Open the printed Ticket URL on your phone browser. You will see the ticket detai
 
 ### 2. Verify the legitimate ticket
 
-```bash
+```
 python -m cli verify --pnr <PNR> --tte TTE-MUM-047 --train 12051
 ```
 
 Expected output:
+
 ```
 RESULT                  VALID
 
@@ -442,7 +456,7 @@ Key Used                current
 
 ### 3. Clone attack — same barcode, second paper
 
-```bash
+```
 python -m cli clone --pnr <PNR>
 ```
 
@@ -450,22 +464,23 @@ The clone command fetches the real ticket's packed bytes and generates a new Dat
 
 Verify the original, then verify the clone:
 
-```bash
+```
 python -m cli verify --pnr <PNR> --tte TTE-001 --train 12051         # → VALID
 python -m cli verify --image tickets/CLONED_<PNR>_dm.png --tte TTE-002 --train 12051  # → DUPLICATE
 python -m cli audit duplicates
 ```
 
-The second scan returns `DUPLICATE`. The audit server marks both events and flags the UUID. The Falcon signature on the clone is valid — this attack is caught by the UUID deduplication layer, not the signature check.
+The second scan returns `DUPLICATE`. The audit server marks both events and flags the UUID. The Falcon signature on the clone is valid — **this attack is caught by the UUID deduplication layer, not the signature check.** Cryptography alone cannot detect cloning, since a cloned barcode is a byte-for-byte copy of a legitimately signed payload; detection here is purely behavioral and audit-based.
 
 ### 4. Forgery attack — tampered payload field
 
-```bash
+```
 python -m cli forge --pnr <PNR> --field class --value 1A
 python -m cli verify --image tickets/FORGED_<PNR>_class_dm.png --tte TTE-001 --train 12051
 ```
 
 Expected output:
+
 ```
 RESULT                  FORGED
 
@@ -476,7 +491,7 @@ The forge command modifies the `class` field in the payload JSON and repacks the
 
 ### 5. Identity check
 
-```bash
+```
 python -m cli verify --pnr <PNR> --tte TTE-001 --train 12051 --aadhaar
 # Enter correct Aadhaar and DOB → Identity: PASSED
 
@@ -488,7 +503,7 @@ The `id` field in the payload is `SHA256(aadhaar + "|" + dob)`. The TTE app reco
 
 ### 6. Check audit stats
 
-```bash
+```
 python -m cli audit stats
 ```
 
@@ -496,16 +511,16 @@ python -m cli audit stats
 
 ## Verification Result Codes
 
-| Code | Meaning |
-|---|---|
-| `VALID` | Signature valid, all checks passed |
-| `FORGED` | Signature failed against both current and previous key |
-| `DUPLICATE` | UUID seen before — audit server flagged this as a second scan |
-| `EXPIRED` | Current time is after `vu` |
-| `NOT_YET_VALID` | Current time is before `vf` |
-| `WRONG_TRAIN` | Payload train number does not match TTE's session train |
-| `WRONG_DATE` | Payload date does not match today's date |
-| `INVALID_PNR` | UUID/berths not found in locally cached passenger chart |
+| Code              | Meaning                                                         |
+| ------------------- | ------------------------------------------------------------------ |
+| `VALID`            | Signature valid, all checks passed                              |
+| `FORGED`           | Signature failed against both current and previous key          |
+| `DUPLICATE`        | UUID seen before — audit server flagged this as a second scan    |
+| `EXPIRED`          | Current time is after `vu`                                       |
+| `NOT_YET_VALID`    | Current time is before `vf`                                      |
+| `WRONG_TRAIN`      | Payload train number does not match TTE's session train          |
+| `WRONG_DATE`       | Payload date does not match today's date                        |
+| `INVALID_PNR`      | UUID/berths not found in locally cached passenger chart          |
 
 `FORGED` is always checked first. If the signature is invalid, no other checks run — there is no point inspecting fields of a payload whose integrity cannot be proven.
 
@@ -513,7 +528,7 @@ python -m cli audit stats
 
 ## Running Tests
 
-```bash
+```
 python tests/test_shared.py
 ```
 
@@ -542,42 +557,42 @@ Full OpenAPI docs are available at `http://localhost:<port>/docs` for each servi
 
 ### CRIS Signing Service `:8001`
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/sign` | POST | Sign a ticket payload. Returns `barcode_b64`, `uuid`, `pnr`. |
-| `/public-key` | GET | Current and previous public keys (base64) and fingerprint. |
-| `/health` | GET | Liveness check. Confirms private key is loaded. |
+| Endpoint       | Method | Description                                                   |
+| --------------- | ------ | ----------------------------------------------------------------- |
+| `/sign`        | POST   | Sign a ticket payload. Returns `barcode_b64`, `uuid`, `pnr`.    |
+| `/public-key`  | GET    | Current and previous public keys (base64) and fingerprint.     |
+| `/health`      | GET    | Liveness check. Confirms private key is loaded.                |
 
 ### Audit Server `:8002`
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/log` | POST | Record a verification event. Returns `is_duplicate` flag. |
-| `/duplicates` | GET | All UUIDs flagged as duplicate with full event history. |
-| `/log/{uuid}` | GET | All events for a specific UUID. |
-| `/stats` | GET | Aggregated counts by result code. |
-| `/health` | GET | Liveness check. |
+| Endpoint       | Method | Description                                                |
+| --------------- | ------ | -------------------------------------------------------------- |
+| `/log`         | POST   | Record a verification event. Returns `is_duplicate` flag.   |
+| `/duplicates`  | GET    | All UUIDs flagged as duplicate with full event history.     |
+| `/log/{uuid}`  | GET    | All events for a specific UUID.                              |
+| `/stats`       | GET    | Aggregated counts by result code.                            |
+| `/health`      | GET    | Liveness check.                                              |
 
 ### HHT Service `:8003`
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/verify` | POST | Full verification pipeline. Returns structured result. |
-| `/chart/add` | POST | Add passengers to the local chart. |
-| `/chart/{train}/{date}` | GET | View chart grouped by coach. |
-| `/chart/{train}/{date}` | DELETE | Clear chart (end-of-journey wipe). |
-| `/health` | GET | Liveness check. Confirms public key is loaded. |
+| Endpoint                  | Method | Description                                              |
+| --------------------------- | ------ | -------------------------------------------------------------- |
+| `/verify`                  | POST   | Full verification pipeline. Returns structured result.   |
+| `/chart/add`               | POST   | Add passengers to the local chart.                       |
+| `/chart/{train}/{date}`    | GET    | View chart grouped by coach.                              |
+| `/chart/{train}/{date}`    | DELETE | Clear chart (end-of-journey wipe).                       |
+| `/health`                  | GET    | Liveness check. Confirms public key is loaded.            |
 
 ### PRS Booking Service `:8000`
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/book` | POST | Issue a ticket. Calls CRIS signer, generates DataMatrix, populates chart. |
-| `/ticket/{pnr}` | GET | Phone-viewable HTML ticket page with embedded barcode. |
-| `/ticket/{pnr}/qr` | GET | DataMatrix barcode PNG. |
-| `/ticket/{pnr}/raw` | GET | Full ticket data including `barcode_b64` (for CLI/debug). |
-| `/tickets` | GET | List all issued tickets (no barcode data). |
-| `/health` | GET | Liveness check. |
+| Endpoint              | Method | Description                                                                |
+| ----------------------- | ------ | -------------------------------------------------------------------------------- |
+| `/book`                | POST   | Issue a ticket. Calls CRIS signer, generates DataMatrix, populates chart.        |
+| `/ticket/{pnr}`        | GET    | Phone-viewable HTML ticket page with embedded barcode.                          |
+| `/ticket/{pnr}/qr`     | GET    | DataMatrix barcode PNG.                                                          |
+| `/ticket/{pnr}/raw`    | GET    | Full ticket data including `barcode_b64` (for CLI/debug).                       |
+| `/tickets`             | GET    | List all issued tickets (no barcode data).                                       |
+| `/health`              | GET    | Liveness check.                                                                  |
 
 ---
 
@@ -633,31 +648,37 @@ railway-pq-auth-demo/
 ## Troubleshooting
 
 **`ModuleNotFoundError: No module named 'pydantic_settings'`**
-```bash
+
+```
 pip install "pydantic-settings==2.7.1"
 ```
 
 **`TypeError: Can't replace canonical symbol for '__firstlineno__'` (SQLAlchemy)**
 
 SQLAlchemy 2.0.30 is incompatible with Python 3.12+.
-```bash
+
+```
 pip install "sqlalchemy==2.0.50"
 ```
 
 **`liboqs version (major, minor) X.Y differs from liboqs-python version`**
 
 This warning is usually safe to ignore if Falcon-padded-512 is available. Verify:
-```bash
+
+```
 python -c "import oqs, warnings; warnings.filterwarnings('ignore'); print('Falcon-padded-512' in oqs.get_enabled_sig_mechanisms())"
 ```
+
 Should print `True`.
 
 **`Key generation failed: Falcon-padded-512`**
 
 Your liboqs C library uses a different algorithm name. Check what names are available:
-```bash
+
+```
 python -c "import oqs; print(oqs.get_enabled_sig_mechanisms())"
 ```
+
 Look for `Falcon-padded-512` or `ML-DSA-44` in the output. If neither is present, rebuild liboqs from the latest source.
 
 **`Barcode generation failed: Could not encode data`**
@@ -667,18 +688,22 @@ The packed bytes are too large for the 144×144 DataMatrix symbol. This should n
 **`TypeError: Parameter.make_metavar() missing 1 required positional argument: 'ctx'`**
 
 Typer/Click version mismatch on Python 3.14.
-```bash
+
+```
 pip install "typer==0.13.1" "click==8.1.8"
 ```
 
 **`CRIS Signer service is not reachable`**
 
 Ensure all services are running:
-```bash
+
+```
 honcho start
 ```
+
 Or start the signer individually:
-```bash
+
+```
 uvicorn services.cris_signer.main:app --port 8001 --reload
 ```
 
@@ -688,24 +713,24 @@ uvicorn services.cris_signer.main:app --port 8001 --reload
 
 This repo is a direct successor to [railway-auth-demo](https://github.com/dishitaghuge01/railway-auth-demo) (ECDSA P-256, QR codes). The architecture, API contracts, database schema, and CLI command structure are identical. Changes from v1 to v2:
 
-| Concern | v1 (ECDSA) | v2 (Falcon) |
-|---|---|---|
-| Signing algorithm | ECDSA P-256 | Falcon-padded-512 (FIPS 206) |
-| Barcode format | QR Code ECC Level H | DataMatrix ECC200 144×144 |
-| Wire format | base64url JWT (`payload.sig`) | Binary: `[2B len][JSON][666B sig]` |
-| Key format | PEM files (`.pem`) | Raw bytes (`.bin`) |
-| Signature size | 64–72 bytes | 666 bytes (fixed) |
-| Public key size | 64 bytes | 897 bytes |
-| Private key size | 32 bytes | 1281 bytes |
-| Quantum resistance | No (Shor's algorithm breaks ECDSA) | Yes (lattice hardness) |
-| Python crypto lib | `cryptography` | `liboqs-python` |
-| Python barcode lib | `qrcode[pil]` + `pyzbar` | `pylibdmtx` |
+| Concern             | v1 (ECDSA)                            | v2 (Falcon)                           |
+| --------------------- | ---------------------------------------- | ---------------------------------------- |
+| Signing algorithm    | ECDSA P-256                              | Falcon-padded-512 (draft FIPS 206)       |
+| Barcode format       | QR Code ECC Level H                      | DataMatrix ECC200 144×144                |
+| Wire format          | base64url JWT (`payload.sig`)            | Binary: `[2B len][JSON][666B sig]`       |
+| Key format           | PEM files (`.pem`)                       | Raw bytes (`.bin`)                       |
+| Signature size       | 64–72 bytes                              | 666 bytes (fixed)                        |
+| Public key size      | 64 bytes                                 | 897 bytes                                |
+| Private key size     | 32 bytes                                 | 1281 bytes                               |
+| Quantum resistance   | No (Shor's algorithm breaks ECDSA)       | Yes (lattice hardness)                   |
+| Python crypto lib    | `cryptography`                           | `liboqs-python`                          |
+| Python barcode lib   | `qrcode[pil]` + `pyzbar`                 | `pylibdmtx`                              |
 
 ---
 
 ## Related
 
 - [railway-auth-demo](https://github.com/dishitaghuge01/railway-auth-demo) — v1, ECDSA P-256
-- [NIST FIPS 206](https://csrc.nist.gov/pubs/fips/206/final) — FN-DSA (Falcon) standard
+- [NIST FIPS 206 status](https://csrc.nist.gov/projects/post-quantum-cryptography) — FN-DSA (Falcon) standard; still in draft as of mid-2026, final publication expected late 2026/early 2027
 - [Open Quantum Safe / liboqs](https://github.com/open-quantum-safe/liboqs) — C library used for Falcon
 - [liboqs-python](https://github.com/open-quantum-safe/liboqs-python) — Python bindings
