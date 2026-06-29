@@ -42,7 +42,7 @@ RUN ./venv/bin/pip install ./liboqs-python
 RUN ./venv/bin/pip install -r requirements.txt
 
 # Generate keys
-RUN ./venv/bin/python scripts/keygen.py
+RUN echo "y" | ./venv/bin/python scripts/keygen.py
 
 EXPOSE 8000 8001 8002 8003
 
