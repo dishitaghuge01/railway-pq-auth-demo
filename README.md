@@ -1,6 +1,6 @@
 # railway-pq-auth-demo
 
-A post-quantum cryptographic authentication and anti-forgery framework for printed Indian Railway tickets, implemented as a Python microservices demo.
+A post-quantum cryptographic authentication and anti-forgery framework for printed Indian Railway tickets, implemented as a Python microservices demo with a companion web console.
 
 This is the v2 successor to [railway-auth-demo](https://github.com/dishitaghuge01/railway-auth-demo), which used ECDSA P-256. This version replaces ECDSA with **Falcon-padded-512**, the NIST-selected submission underlying the forthcoming **FIPS 206 (FN-DSA)** standard, currently in public draft (Initial Public Draft submitted August 2025; final standard expected late 2026 or early 2027). It is designed to remain secure against both classical and quantum adversaries through the expected operational lifetime of the ticketing infrastructure.
 
@@ -12,12 +12,14 @@ Indian Railways carries approximately **20 million originating passengers per da
 
 This is not a hypothetical threat. In December 2025, Indian Railways enforcement teams detected AI-edited tickets in active use — a single unreserved ticket on the Jaipur route was digitally altered to display seven passenger names, and a subsequent enforcement drive in the Jammu Division uncovered four more AI-generated fake UTS tickets.
 
-Specific attacks this system addresses:
+Specific attacks this system addresses, each with a corresponding demo command (see [CLI Reference](#cli-reference) and [Demo Walkthrough](#demo-walkthrough)):
 
-- **Fabrication** — creating a ticket from scratch using publicly available PNR data from NTES
-- **Cloning** — scanning a legitimate barcode and reprinting it on a second piece of paper
-- **Physical tampering** — altering printed fields (date, class, berth) after the ticket is issued
-- **Impersonation** — using a cloned ticket paired with a forged identity document
+- **Fabrication** — creating a ticket from scratch using publicly available PNR data from NTES (`python -m cli fabricate`)
+- **Cloning** — scanning a legitimate barcode and reprinting it on a second piece of paper (`python -m cli clone`)
+- **Physical tampering** — altering printed fields (date, class, berth) after the ticket is issued (`python -m cli forge`)
+- **Impersonation** — using someone else's real ticket paired with a different identity (`python -m cli impersonate`)
+
+The web frontend's **Attacks** tab adds a sixth, browser-driven variant of these scenarios for live demos without a terminal — see [Frontend](#frontend) below.
 
 ---
 
@@ -68,7 +70,7 @@ Both ML-DSA-44 and Falcon-padded-512 target NIST Security Level 1. The switch is
 
 ## Architecture
 
-Four services run simultaneously. Each mirrors a real component of the Indian Railways ticketing infrastructure.
+Four backend services run simultaneously. Each mirrors a real component of the Indian Railways ticketing infrastructure. A web frontend (see [Frontend](#frontend)) sits in front of all four for demo purposes — it is not part of the proposed production architecture, just this repo's console for driving it.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -236,6 +238,10 @@ Python 3.11 or later. The project uses Python 3.14 in development.
 
 **Note on pydantic-settings:** This is a separate package from `pydantic` since v2 and must be installed explicitly.
 
+### Frontend dependencies (optional — only needed for the web console)
+
+Node.js 18+ (or [Bun](https://bun.sh)). Both `package-lock.json` and `bun.lock` are committed under `frontend/`, so either `npm install` or `bun install` works.
+
 ---
 
 ## Setup
@@ -283,10 +289,10 @@ honcho start
 # In a separate terminal:
 # 2. Install frontend dependencies
 cd frontend
-npm install
+npm install        # or: bun install
 
 # 3. Start the Vite development server
-npm run dev
+npm run dev         # or: bun run dev
 
 # 4. Open the frontend
 # Visit http://localhost:5173 in your browser
@@ -421,6 +427,15 @@ python -m cli clone --pnr PNR8472910
 
 # Forge: tamper with a payload field, repack without re-signing
 python -m cli forge --pnr PNR8472910 --field class --value 1A
+
+# Fabricate: build and sign a brand-new ticket using an attacker-owned key —
+# no real PNR or stolen barcode involved at all
+python -m cli fabricate --train 12051 --from CSMT --to NDLS --date 2026-06-15 \
+    --departure 06:00 --arrival 20:00 --class 3A --berth B2/99
+
+# Impersonate: present someone else's real, validly signed ticket under a
+# different identity (requires a ticket booked with --aadhaar)
+python -m cli impersonate --pnr PNR8472910 --aadhaar 999999999999 --dob 1985-01-01
 ```
 
 ---
@@ -501,7 +516,7 @@ python -m cli verify --pnr <PNR> --tte TTE-001 --train 12051 --aadhaar
 
 The `id` field in the payload is `SHA256(aadhaar + "|" + dob)`. The TTE app recomputes this hash on-device from the passenger's input and compares it to the stored hash. The raw Aadhaar number is discarded from memory immediately after hashing and is never transmitted anywhere.
 
-### 6. Check audit stats
+### 8. Check audit stats
 
 ```
 python -m cli audit stats
@@ -543,11 +558,50 @@ python tests/test_shared.py
 - `verify_signature` never raises for any garbage input
 - Identity hash pipe separator prevents collision
 - `pack → unpack` roundtrip preserves payload dict exactly
-- Packed size for 6-passenger ticket fits within DataMatrix capacity (< 1556 bytes)
+- Packed size for 6-passenger ticket fits within DataMatrix capacity (< 1558 bytes)
 - Wire format structure is correct
 - `unpack_signed_payload` rejects truncated and empty input
 
 Expected runtime: 30–60 seconds (Falcon key generation is the slow step, called 8 times across the suite).
+
+---
+
+## Performance Benchmarks
+
+```bash
+python scripts/benchmark.py            # full run: 300 trials/op, ~30-40s
+python scripts/benchmark.py --quick    # fast smoke test: 30 trials/op
+```
+
+`scripts/benchmark.py` exists to give a committed, reproducible source for any latency number cited in the paper — answering "how was this measured, on what hardware, how many trials" directly rather than by hand. It benchmarks the real `shared/crypto_utils.py` and `shared/payload.py` code paths (not synthetic stand-ins), for both a 1-passenger and a 6-passenger ticket so the cited range reflects realistic min/max ticket sizes rather than one cherry-picked number:
+
+- **Falcon sign / Falcon verify** — the raw signature primitives
+- **pack_signed_payload / unpack_and_verify** — the full per-ticket application pipeline (JSON serialise/parse + sign/verify + struct pack/unpack)
+- **DataMatrix encode / decode** — `pylibdmtx`, Base256 scheme, 144×144 — the same calls PRS and the HHT make in production
+
+Each operation runs a configurable number of timed trials (default 300, after 20 discarded warmup calls). `generate_keypair()` is timed separately and excluded from the combined sign+verify figure, since it is a one-time HSM operation at key rotation, not a per-ticket cost.
+
+The script also guards against a real `pylibdmtx` bug it would otherwise silently inherit: `decode()` truncates at the first `0x00` byte unless patched, and a Falcon signature is ~666 bytes of near-uniform-random data, so roughly 92.6% of decodes are corrupted without the fix already used in `cli/main.py`. The benchmark applies the same patch and asserts a byte-exact encode/decode round trip before trusting any decode timing — if the assertion fails, it raises instead of writing bad numbers to the paper trail.
+
+Results are written to `benchmarks/results.json` (every raw sample, full summary statistics, and complete environment metadata) and `benchmarks/RESULTS.md` (a citable table). The committed `benchmarks/RESULTS.md` was measured on:
+
+| Field | Value |
+|---|---|
+| CPU | 12th Gen Intel(R) Core(TM) i5-1235U |
+| OS | Arch Linux, kernel 7.0.10-arch1-1 |
+| Python | CPython 3.14.5 |
+| liboqs / liboqs-python | 0.15.0 / 0.16.0.dev0 |
+| Trials | 300 per operation (20 warmup, discarded) |
+
+| Operation | 1-passenger mean | 6-passenger mean |
+|---|---|---|
+| Falcon sign | 0.2722 ms | 0.1497 ms |
+| Falcon verify | 0.0341 ms | 0.0368 ms |
+| **Falcon sign + verify combined** | **0.3063 ms** | **0.1865 ms** |
+| DataMatrix encode | 8.6946 ms | 9.0234 ms |
+| DataMatrix decode | 21.5204 ms | 21.3339 ms |
+
+Full per-trial statistics (median, stdev, min, max, p95) are in `benchmarks/RESULTS.md`. Re-run the script on whatever machine is actually cited in the paper before submission, and recommit both output files — these numbers are this machine's, not a universal constant.
 
 ---
 
@@ -606,6 +660,10 @@ railway-pq-auth-demo/
 ├── requirements.txt
 ├── README.md
 │
+├── benchmarks/
+│   ├── RESULTS.md              # Human-readable benchmark report — citable in the paper
+│   └── results.json            # Raw samples + summary stats + environment metadata
+│
 ├── keys/
 │   ├── private_key.bin         # GITIGNORED — 1281 bytes
 │   ├── public_key.bin          # 897 bytes
@@ -633,11 +691,30 @@ railway-pq-auth-demo/
 │           └── ticket.html     # Phone-viewable ticket page
 │
 ├── cli/
-│   ├── main.py                 # All CLI commands
+│   ├── main.py                 # book, verify, audit, chart, clone, forge, fabricate, impersonate
 │   └── __main__.py             # Entry point for python -m cli
 │
 ├── scripts/
-│   └── keygen.py               # Standalone key generation
+│   ├── keygen.py               # Standalone key generation
+│   └── benchmark.py            # Falcon + DataMatrix latency benchmark → benchmarks/
+│
+├── frontend/                   # TanStack Start (React 19) web console
+│   ├── package.json
+│   ├── vite.config.ts          # Dev-server proxy: /api/{prs,cris,audit,hht} → :8000-8003
+│   └── src/
+│       ├── components/
+│       │   ├── book-page.tsx
+│       │   ├── verify-page.tsx
+│       │   ├── audit-page.tsx
+│       │   ├── chart-page.tsx
+│       │   ├── attacks-page.tsx    # Browser-based attack simulator
+│       │   ├── navbar.tsx          # Live health-check dots for all 4 services
+│       │   ├── service-banner.tsx
+│       │   └── ui/                 # shadcn/ui components
+│       ├── lib/
+│       │   └── api.ts
+│       ├── config.ts               # Service base paths/ports
+│       └── routes/
 │
 └── tests/
     └── test_shared.py          # 32 unit tests for shared layer

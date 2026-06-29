@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+db/*.db
+tickets/
+keys/private_key.bin
